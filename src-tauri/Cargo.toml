@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "课页桌面应用"
 authors = ["课页项目"]
 license = ""
-repository = ""
+repository = "https://github.com/goooseby/keye-desktop"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.98.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,8 +18,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-serde_json = "1.0"
+chrono = "0.4.45"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "tiff"] }
+lopdf = "0.45.0"
+pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7763", "image_025"] }
+percent-encoding = "2.3.2"
+regex = "1.13.1"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "query", "native-tls"] }
+rfd = "0.17.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
+serde_json = "1.0.151"
+sha2 = "0.11.0"
 tauri = { version = "2.11.6", features = [] }
-tauri-plugin-log = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.dev.package.image]
+opt-level = 2

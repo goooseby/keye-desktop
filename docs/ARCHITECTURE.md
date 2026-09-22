@@ -3,39 +3,38 @@
 ## 总体结构
 
 ```text
-TypeScript 界面（WebView2）
+旧版界面 HTML/CSS/JS + TypeScript 命令桥接（WebView2）
        │ Tauri invoke / 事件
-Rust 应用层：任务调度、状态转换、错误报告
-       ├─ platform：网页登录窗口、Cookie、文件选择、系统路径
-       ├─ provider：学校课表和课件 API 适配器
-       ├─ library：课程／课次／页面模型及 SQLite 持久化
-       ├─ media：图片解码、缩略图、PDF 导入与导出
-       └─ update：GitHub 更新检查与签名验证
+Rust 应用层
+       ├─ commands.rs：桌面命令、对话框、运行状态和任务控制
+       ├─ platform.rs：学校登录凭据解析、课表 API、课件下载
+       ├─ library.rs：课程／课次／页面模型及 SQLite 持久化
+       └─ pdf.rs：PDF 导入、预览、保真或合并导出
 ```
 
-当前代码只有 `app_status` 命令，后续模块需按纵向功能逐步实现，不提前造一批空接口。学校平台细节只存在于 `provider`，以便未来变动不影响资料库和整理界面。所有耗时工作进入后台任务；界面只接收小型状态消息和当前可见页面所需图像，不一次性加载整门课程的所有原图。
+学校平台细节集中在 `platform.rs`，本地资料库不依赖登录状态。桌面命令通过 Tauri 的后台线程处理，变更以状态事件通知界面。预览图由限于资料库目录的自定义协议按需读取，状态快照只传元数据和预览地址。
 
 ## 登录与网络
 
-网页登录使用单独的 WebView2 窗口及持久浏览器配置。Rust 侧读取需要的 Cookie；不能依赖网页 `document.cookie` 获取 HTTP-only 值。Tauri 当前 API 文档提醒，Windows 上在同步命令或事件处理器中读 Cookie 可能死锁，因此读取必须走异步命令／独立任务。HTTP 客户端与网页登录视图的状态交接要有单独测试，并确认学校 API 的代理、Referer、Origin 和授权头行为。令牌只在运行时内存中使用，不写入课件数据库或前端日志。
+网页登录使用单独的 WebView2 隐私窗口。后台线程检测该窗口的 Cookie，获得学校身份后自动扫描当前日期范围。HTTP 客户端绕开桌面代理并设置学校接口所需请求头。令牌只在运行时内存中使用，不写入课件数据库或前端日志；网络错误不得暴露含令牌的完整请求地址。学校登录和下载仍需账号持有人在真实网络中验收。
 
 参考：[Tauri Cookie API](https://docs.rs/tauri/latest/tauri/webview/struct.Webview.html)、[WebView2 CookieManager](https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2cookiemanager.getcookiesasync)。
 
 ## 数据与文件
 
-安装目录只放程序；应用数据进入独立的用户数据目录，导出 PDF 使用用户指定目录。数据模型至少包含课程、课次、页面、筛选状态、后台任务、导出记录和设置。数据库存元数据与相对路径，原始图片／PDF 独立存放；缩略图可重建，不应成为唯一副本。写入采用临时文件加原子替换，数据库结构使用版本化迁移。用户可以备份整个资料库目录。
+开发资料位于项目 `.build/dev-data/`，正式版本默认进入独立的用户应用数据目录；导出 PDF 使用用户指定目录。SQLite 存课程、课次、页面筛选、任务和设置，图片及 PDF 原件单独存放。预览和缩略图可由原件重建，不是唯一副本。PDF 先写临时文件，再替换目标；数据库用 `user_version` 拒绝未知的新版本。
 
-旧版 SQLite 目前用 `materials`、`courses`、`tasks`、`settings` 表存 JSON；新模型不应盲目照搬。迁移过程另见 [MIGRATION.md](MIGRATION.md)。
+为沿用成熟界面，新版暂保持旧版的课程、课次和设置字段语义，但资料库独立创建，也拒绝直接打开旧版更高版本的数据库。旧数据复制迁移见 [MIGRATION.md](MIGRATION.md)。
 
 ## 性能与稳定性
 
-- 图片按需解码，列表虚拟化；快速翻页时取消过期请求，只保留当前页和邻近页的预取。
-- PDF 合成与文件下载有并发上限和明确取消、重试机制；不要在 UI 线程做同步磁盘或网络操作。
+- 页面图片按需读取；快速翻页沿用界面已有的过期请求取消和相邻页面预取。
+- 文件下载在后台线程执行，有暂停、取消和重试；PDF 操作用互斥锁保护 PDFium。进一步优化下载并发和大资料库列表性能仍待实测。
 - 浏览器进程失败可报告并恢复；不要把“系统 WebView2”视为完全不会卡顿的保证。
-- 发布时使用系统共享的 Evergreen WebView2，安装器检查缺失情况；离线版是否附带运行时由发行策略决定。
+- 正式发布时复用系统共享的 Evergreen WebView2；开发阶段无需安装包。
 
 ## 更新与安全
 
-新项目使用自己的 GitHub Release 和更新清单，与旧版更新索引隔离。Tauri 官方更新插件要求安装包签名，并支持 GitHub Releases 中的静态 JSON；只有完成迁移和安装测试后才启用自动更新。私钥不放入仓库。对远端网页不授予 Tauri 命令权限；登录窗口和本地应用窗口须分离。当前样机的权限只允许默认窗口能力。
+应用内自动更新尚未迁移。待正式分发时，新项目需使用自己的 GitHub Release、更新清单和签名密钥，且与旧版通道隔离。对远端学校网页不授予 Tauri 命令权限；登录窗口与本地应用窗口分离。
 
 参考：[Tauri 更新插件](https://v2.tauri.app/plugin/updater/)、[WebView2 分发](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。
