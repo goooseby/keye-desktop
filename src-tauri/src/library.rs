@@ -158,7 +158,7 @@ impl Library {
         settings["maxWorkers"]=json!(settings["maxWorkers"].as_u64().unwrap_or(2).clamp(1,4));
         settings["libraryDir"] = json!(self.root.display().to_string());
         Ok(json!({"materials":materials,"courseLibrary":self.courses()?,"reviewQueue":self.setting("reviewQueue",json!([]))?,"tasks":self.tasks()?,"settings":settings,
-            "lastMaterial":self.setting("lastMaterial",Value::Null)?,"loggedIn":false,"courses":[],"scanned":false,"scanError":"","appVersion":env!("CARGO_PKG_VERSION"),"packaged":false,"scanning":false}))
+            "lastMaterial":self.setting("lastMaterial",Value::Null)?,"loggedIn":false,"courses":[],"scanned":false,"scanError":"","appVersion":env!("CARGO_PKG_VERSION"),"packaged":!cfg!(debug_assertions),"scanning":false}))
     }
     pub fn media_file(&self, mid: &str, page: usize, size: &str) -> Option<PathBuf> {
         if !mid.chars().all(|c| c.is_ascii_hexdigit()) || mid.len()!=32 || page==0 { return None; }

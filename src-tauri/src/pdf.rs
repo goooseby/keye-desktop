@@ -2,7 +2,7 @@ use crate::library::Library;
 use lopdf::{dictionary, Document, Object, Stream};
 use serde_json::Value;
 use serde_json::json;
-use std::{fs, path::{Path,PathBuf}, sync::{Mutex,OnceLock}, time::{SystemTime,UNIX_EPOCH}};
+use std::{collections::HashSet,fs, path::{Path,PathBuf}, sync::{Mutex,OnceLock}, time::{SystemTime,UNIX_EPOCH}};
 use pdfium_render::prelude::*;
 
 static PDF_LOCK: Mutex<()> = Mutex::new(());
@@ -113,7 +113,7 @@ pub fn export_combined(lib:&Library,materials:&[Value],destination:&Path)->Resul
 
 pub fn export_images(lib:&Library, material:&Value, destination:&Path)->Result<(),String>{
     let files=material["files"].as_array().ok_or("课件页面数据损坏。")?;
-    let excluded:Vec<u64>=material["excluded"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect();
+    let excluded:HashSet<u64>=material["excluded"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect();
     let mut doc=Document::with_version("1.5");
     let pages_id=doc.new_object_id();
     let mut page_ids=Vec::new();
@@ -121,8 +121,7 @@ pub fn export_images(lib:&Library, material:&Value, destination:&Path)->Result<(
         if excluded.contains(&((i+1) as u64)){continue;}
         let relative=record["preview"].as_str().ok_or("页面路径无效。")?;
         let path=lib.root.join(relative);
-        let image=image::open(&path).map_err(|e|e.to_string())?.to_rgb8();
-        let (width,height)=image.dimensions();
+        let (width,height)=image::image_dimensions(&path).map_err(|e|e.to_string())?;
         let jpg=fs::read(&path).map_err(|e|e.to_string())?;
         let image_id=doc.add_object(Stream::new(dictionary!{
             "Type"=>"XObject","Subtype"=>"Image","Width"=>width as i64,"Height"=>height as i64,

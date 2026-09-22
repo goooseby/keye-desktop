@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "active": true,
+    "resources": { "../.tools/pdfium/bin/pdfium.dll": "pdfium.dll" }
+  }
+}

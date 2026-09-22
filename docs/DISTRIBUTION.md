@@ -1,18 +1,24 @@
 # Windows 分发方案（开发阶段）
 
-当前只运行源码开发版，不制作安装包。正式分发目标是一个 `课页_x.y.z_setup.exe`：双击后进入经典安装向导，用户可在“选择安装目录”页保留默认位置或自行选择路径，然后完成安装，并能从开始菜单卸载。优先采用 Tauri 2 自带的 NSIS 安装程序和 `currentUser` 模式，默认安装给当前用户，不要求管理员权限；选择其他位置时以 Windows 对目标目录的实际写入权限为准。应用运行时不依赖安装路径可写。保留压缩包形式作为备选测试包，但它仍使用用户资料目录，并不称为“随身携带数据”的便携版。
+当前开发版及本地测试安装包已构建成功，尚未完成安装、卸载和应用内更新的端到端验收。分发目标是一个 `课页_x.y.z_setup.exe`：双击后进入 Windows 安装向导，可选择安装目录。配置采用 Tauri 2 的 NSIS `currentUser` 模式，默认安装给当前用户，不要求管理员权限；选择其他位置时以 Windows 对目标目录的实际写入权限为准。应用运行时不依赖安装路径可写。
 
 数据边界已经在代码中固定：开发脚本使用项目内 `.build/dev-data/`；普通运行使用 Tauri 的 `app_local_data_dir()`，即用户自己的 Local AppData 下按应用标识符命名的目录。SQLite 数据库、课件原图、预览、任务和设置均在资料库目录；用户可以在设置中切换资料库。安装目录只放程序和 PDFium 等只读资源，不放需要修改的课件数据。导出的 PDF 仍保存到用户选定的目录。安装、升级或更换安装位置不应重建资料库，也不应自动删除它。
 
-制作安装包前需要处理的工作：
+当前已接入的基础设施：
 
-1. 将 PDFium DLL 作为安装资源带入，并让正式程序从资源目录读取；开发版继续使用项目内 DLL。确认 WebView2 的安装检测与下载提示。
-2. 启用 NSIS `currentUser` 安装模式，配置应用名称、图标、卸载项和中文界面；不在安装过程申请管理员权限或改动全局 PATH。
-3. 使用 NSIS 生成 Windows“已安装的应用”可识别的卸载项；在程序“关于”页提供卸载入口。卸载向导让用户勾选是否删除**默认应用数据目录**，默认保留。用户主动切换到其他位置的资料库和已导出的 PDF 不应由卸载器擅自删除。安装、覆盖升级、卸载和重装应保留相同的应用标识。
-4. 接通应用内更新后再打包。至少需要检查 GitHub Release、验证签名、下载和安装更新、失败后保留原版本，并明确界面显示的是完整更新还是实测可用的差分更新。当前“关于”页只有界面入口，不能算更新已架好。
-5. 用普通 Windows 用户验证首次安装、关闭重开、覆盖升级、卸载后资料保留和重新安装后找回资料。测试安装在默认目录与自选目录两种情况。
-6. 如以后需要真正的便携版，应显式提供“数据跟随程序”的模式，并在目录不可写时给出清晰错误；不能靠判断是否安装在 Program Files 来偷偷改变数据位置。
+- NSIS 安装配置、简体中文、Windows“已安装的应用”卸载登记及应用“关于”页卸载入口。卸载入口调用安装目录中的 `uninstall.exe`；源码开发版禁用。
+- NSIS 卸载向导自带“删除应用数据”选择项。默认保留用户数据；勾选后清理默认 AppData 目录，不清理外置资料库或导出的 PDF。
+- PDFium 随安装包作为只读资源放在程序目录，开发版仍从 `.tools/pdfium/` 读取。安装脚本会先校验 PDFium 下载包。
+- Tauri 签名更新器已连接到本仓库 GitHub Releases 的 `latest.json`。检查、下载进度和启动安装由“关于”页控制。更新包必须由同一密钥签名；标准 Tauri 更新器下载完整安装包，**当前没有真正的二进制差分更新**。
+- `scripts/package.ps1` 可制作 NSIS 安装包；`scripts/release-manifest.ps1` 根据安装包及签名生成 `latest.json`。这些脚本尚未代表安装、卸载和更新流程已验收。
 
-当前 `bundle.active` 仍为 `false`。本文件记录产品方向，不表示安装包已经可用。
+正式发布前仍需要：
+
+1. 当前更新策略是应用内自动下载、验签并安装完整包，以操作简单和失败可恢复为优先。若以后要节省下载流量，再实现有完整包兜底的差分机制；不能把当前完整更新标注为差分下载。
+2. 安全备份本地 `.secrets/keye-updater.key` 和 `.secrets/keye-updater.password`。打包脚本从这两个文件读取签名信息；两者都被 Git 忽略，绝不能提交。私钥丢失后，已安装版本无法验证新签名。
+3. 验证打包后的 PDFium 读取、WebView2 可用性、首次安装、关闭重开、默认及自选安装路径、Windows 设置中的卸载入口、应用内卸载入口、保留及删除默认数据、重装后找回数据。
+4. 在实际 GitHub Release 上验证 `latest.json`、安装包和 `.sig` 的命名及 URL，并在两个版本之间验证检查、下载、签名、安装和失败处理。发布 Release 前不要将“关于”页的更新显示当作端到端验收。
+
+默认 `bundle.active` 保持 `false`；只有 `scripts/package.ps1` 使用的专用配置将它设为 `true`。本地 `0.1.0` 测试安装包位于 `.build/cargo/release/bundle/nsis/`，实测体积 7.61 MiB。它的更新签名和 `latest.json` 已同时生成；尚未安装验收，也没有发布 Release。发布时须将安装包、同名 `.sig` 和 `latest.json` 一起作为同一版本 GitHub Release 的附件，版本标签为 `v<版本号>`。
 
 参考：[Tauri Windows 安装包](https://v2.tauri.app/distribute/windows-installer/)、[Tauri NSIS 配置](https://v2.tauri.app/reference/config/#nsisinstallermode)、[Microsoft 的应用数据目录建议](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/user-account-control-for-game-developers)。

@@ -101,6 +101,15 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
         "openExport" => {let m=lib.get_material(required(data,"id")?)?;let path=PathBuf::from(text(&m,"exportPath"));if !path.is_file(){return Err("导出文件不存在。".into());}open_dir(path.parent().ok_or("导出路径无效。")?)?;Ok(json!(true))}
         "task" => task_action(app,lib,data),
         "openRelease" => {std::process::Command::new("explorer").arg("https://github.com/goooseby/keye-desktop/releases").spawn().map_err(|e|e.to_string())?;Ok(json!(true))}
+        "uninstall" => {
+            if cfg!(debug_assertions) {return Err("开发版没有卸载程序。".into());}
+            let exe=std::env::current_exe().map_err(|e|e.to_string())?;
+            let uninstaller=exe.parent().ok_or("无法定位程序目录。")?.join("uninstall.exe");
+            if !uninstaller.is_file(){return Err("未找到卸载程序。请从 Windows 设置的‘已安装的应用’中卸载。".into());}
+            std::process::Command::new(uninstaller).spawn().map_err(|e|format!("无法启动卸载向导：{e}"))?;
+            app.exit(0);
+            Ok(json!(true))
+        }
         _ => Err(format!("此功能尚未接入：{command}")),
     }
 }

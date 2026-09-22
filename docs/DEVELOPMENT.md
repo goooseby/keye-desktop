@@ -25,11 +25,11 @@ npm ci
 
 开发启动会先构建前端，再用本地静态服务打开窗口，避免窗口显示后临时编译前端造成长时间的“正在打开资料库”。修改前端代码后需重启开发程序才能看到变化。首次或 Rust 依赖变更后的编译仍可能较久，但发生在窗口出现之前。开发配置单独优化了图片处理依赖，便于测试大量页面的导入。
 
-Tauri 的 `useLocalToolsDir` 已启用。当前关闭安装包构建；开发只需 `scripts/dev.ps1` 启动窗口。
+Tauri 的 `useLocalToolsDir` 已启用。日常开发默认不构建安装包；测试安装包由 `scripts/package.ps1` 显式生成。
 
 仓库只保留 Windows 打包所需的 `icon.ico` 和源 SVG。Tauri 图标命令生成的 Android、iOS 等变体留在本地但不入库，需要扩展平台时可用 `npx tauri icon public/app-icon.svg` 重新生成。
 
-`scripts/check.ps1` 执行前端构建与 Rust 编译检查。`scripts/build.ps1` 可编译应用程序本体，当前不会制作安装包。应用内更新和正式分发需要另行完成验收。
+`scripts/check.ps1` 执行前端构建与 Rust 编译检查。`scripts/build.ps1` 编译应用程序本体，不制作安装包；`scripts/package.ps1` 制作签名 NSIS 安装包和更新清单。安装、卸载与应用内更新仍需实机验收。
 
 ## 恢复和清理
 

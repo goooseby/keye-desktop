@@ -2,7 +2,7 @@
 
 课页是面向 Windows 的个人课件资料库：获取课程课件或导入本地文件，按课程和课次整理，逐页预览并排除无效页面，最后导出 PDF。桌面应用使用 Tauri 2、Rust、TypeScript 和系统 WebView2。代码仓库为 [goooseby/keye-desktop](https://github.com/goooseby/keye-desktop)。
 
-当前版本是可运行的开发版，已接入资料库、课程与课次、图片和 PDF 导入、逐页筛选、单份及批量 PDF 导出、网页登录检测、课表扫描和课件下载。学校平台流程仍需使用者登录后实测；安装、卸载和应用内更新尚未完成验收。
+当前版本是可运行的开发版，已接入资料库、课程与课次、图片和 PDF 导入、逐页筛选、单份及批量 PDF 导出、网页登录检测、课表扫描和课件下载。学校平台流程仍需使用者登录后实测；安装、卸载和应用内更新已接入基础设施，但尚未完成安装版验收。
 
 ## 项目信息
 
@@ -44,4 +44,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1
 - [开发环境及清理方式](docs/DEVELOPMENT.md)
 - [Windows 安装与数据目录方案](docs/DISTRIBUTION.md)
 
-正式安装包尚未生成。计划采用可选择安装目录的 Windows 安装向导；卸载时让用户自行选择是否删除默认应用数据，保留数据后重装可继续使用。安装包及应用内更新的前提和验收项目见分发方案。
+本地已能生成用于验收的 Windows 安装包，位置在 `.build/cargo/release/bundle/nsis/`。安装向导可选择安装目录；卸载时可选择是否删除默认应用数据，保留数据后重装可继续使用。分发与更新的验收项目见[分发方案](docs/DISTRIBUTION.md)。当前尚未发布 GitHub Release。

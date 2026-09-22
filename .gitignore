@@ -26,6 +26,7 @@ dist-ssr
 # Project-local tools and build products. No machine-wide PATH changes.
 .toolchain/
 .tools/
+.secrets/
 .build/
 src-tauri/target/
 src-tauri/gen/

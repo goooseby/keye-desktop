@@ -28,8 +28,32 @@
   },
   "bundle": {
     "active": false,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": true,
     "useLocalToolsDir": true,
-    "icon": ["icons/icon.ico"]
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFMDdFM0E2QTY3NUU3MzUKUldRMTUzV21wdU1IL3AzSkl0WGsxOW5ubnp2SmR0SFhlK3B3TGoxaTRpdDNKTW91akZYd3RRdzEK",
+      "endpoints": [
+        "https://github.com/goooseby/keye-desktop/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

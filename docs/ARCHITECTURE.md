@@ -35,6 +35,6 @@ Rust 应用层
 
 ## 更新与安全
 
-“关于”页已有更新界面，但更新命令尚未实现，打包版本必须先接入并验证。更新需要项目自己的 GitHub Release、更新清单和签名密钥。Tauri 官方更新器默认下载完整签名安装包；如要真正的差分下载，需要另行设计和验证补丁机制，不能仅凭界面文字称为增量更新。对远端学校网页不授予 Tauri 命令权限；登录窗口与本地应用窗口分离。
+“关于”页通过 Tauri 签名更新器检查 GitHub Release 清单，下载签名安装包并启动安装。发布前仍须用两个已签名版本验证整个流程。Tauri 官方更新器下载完整安装包；真正的差分下载需要另行设计和验证补丁机制，界面当前明确写作“完整更新”。对远端学校网页不授予 Tauri 命令权限；登录窗口与本地应用窗口分离。
 
 参考：[Tauri 更新插件](https://v2.tauri.app/plugin/updater/)、[WebView2 分发](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。
