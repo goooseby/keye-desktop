@@ -36,7 +36,7 @@
 
 ## 安装与更新
 
-从 [GitHub Releases](https://github.com/goooseby/keye-desktop/releases/latest) 下载 `课页_*_x64-setup.exe`，运行安装向导即可选择安装位置。课页使用 Windows 当前用户的数据目录保存资料；程序安装目录不存放课件。卸载可从 Windows“已安装的应用”或程序“关于”页启动，卸载向导允许选择保留或删除默认应用数据。自己另选的资料库目录和已经导出的 PDF 不会由卸载器删除。
+从 [GitHub Releases](https://github.com/goooseby/keye-desktop/releases/latest) 下载 `Keye_*_x64-setup.exe`，运行安装向导即可选择安装位置。课页使用 Windows 当前用户的数据目录保存资料；程序安装目录不存放课件。卸载可从 Windows“已安装的应用”或程序“关于”页启动，卸载向导允许选择保留或删除默认应用数据。自己另选的资料库目录和已经导出的 PDF 不会由卸载器删除。
 
 “关于”页提供应用内更新：检查 GitHub Release、下载签名更新包并安装。当前采用完整安装包更新，操作无需手动替换文件；未来若加入差分下载，也会保留完整包作为后备。更多细节见 [Windows 分发说明](docs/DISTRIBUTION.md)。
 

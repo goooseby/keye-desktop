@@ -3,14 +3,20 @@ $ErrorActionPreference = 'Stop'
 $config = Get-Content -Raw -Encoding UTF8 (Join-Path $script:KeyeProjectRoot 'src-tauri\tauri.conf.json') | ConvertFrom-Json
 $version = $config.version
 $bundleDir = Join-Path $script:KeyeProjectRoot '.build\cargo\release\bundle\nsis'
-$installer = Get-ChildItem -LiteralPath $bundleDir -File -Filter '*-setup.exe' |
-    Where-Object { $_.Name -like "*$version*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $installer) { throw "No NSIS installer found for version $version." }
-$signaturePath = "$($installer.FullName).sig"
-if (-not (Test-Path -LiteralPath $signaturePath)) { throw 'The installer signature is missing.' }
+$source = Join-Path $bundleDir "$($config.productName)_${version}_x64-setup.exe"
+$sourceSignature = "$source.sig"
+if (-not (Test-Path -LiteralPath $source)) { throw "No NSIS installer found for version $version." }
+if (-not (Test-Path -LiteralPath $sourceSignature)) { throw 'The installer signature is missing.' }
+# GitHub normalizes non-ASCII asset names. Publish an ASCII copy so the updater URL stays stable.
+$assetName = "Keye_${version}_x64-setup.exe"
+$assetPath = Join-Path $bundleDir $assetName
+$signaturePath = "$assetPath.sig"
+Copy-Item -LiteralPath $source -Destination $assetPath -Force
+Copy-Item -LiteralPath $sourceSignature -Destination $signaturePath -Force
+$installer = Get-Item -LiteralPath $assetPath
 $signature = (Get-Content -Raw -Encoding UTF8 -LiteralPath $signaturePath).Trim()
 if (-not $signature) { throw 'The installer signature is empty.' }
-$url = "https://github.com/goooseby/keye-desktop/releases/download/v$version/$([uri]::EscapeDataString($installer.Name))"
+$url = "https://github.com/goooseby/keye-desktop/releases/download/v$version/$assetName"
 $manifest = @{
     version = $version
     notes = 'See the GitHub release notes.'
