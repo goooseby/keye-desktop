@@ -13,14 +13,14 @@ pub fn run() {
             let root = if let Ok(path) = std::env::var("KEYE_DEV_DATA_DIR") {
                 std::path::PathBuf::from(path)
             } else {
-                app.path().app_data_dir()?
+                app.path().app_local_data_dir()?
             };
             let selected = std::fs::read_to_string(root.join("app-settings.json")).ok()
                 .and_then(|s|serde_json::from_str::<serde_json::Value>(&s).ok())
                 .and_then(|v|v["libraryDir"].as_str().map(std::path::PathBuf::from))
                 .unwrap_or_else(||root.clone());
             let library = library::Library::open(selected).map_err(std::io::Error::other)?;
-            app.manage(commands::AppState { library: Arc::new(RwLock::new(Arc::new(library))), base:root, runtime: Arc::new(std::sync::Mutex::new(commands::Runtime::default())), import_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
+            app.manage(commands::AppState { library: Arc::new(RwLock::new(Arc::new(library))), base:root, runtime: Arc::new(std::sync::Mutex::new(commands::Runtime::default())), import_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)), download_gate: Arc::new((std::sync::Mutex::new(0),std::sync::Condvar::new())), download_enqueue: std::sync::Mutex::new(()), export_lock: std::sync::Mutex::new(()) });
             Ok(())
         })
         .register_uri_scheme_protocol("keye-media", |ctx, request| {

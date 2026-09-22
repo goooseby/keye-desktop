@@ -16,7 +16,7 @@
 ## 本机启动
 
 ```powershell
-cd D:\pythonDev\PythonProject\keye-desktop
+cd <克隆仓库所在目录>\keye-desktop
 npm ci
 .\scripts\dev.ps1
 ```

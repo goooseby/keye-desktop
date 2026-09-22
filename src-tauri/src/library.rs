@@ -31,13 +31,17 @@ impl Library {
         if version>1{return Err("资料库由更新的课页版本创建，当前版本无法打开。".into());}
         if version==0{db.execute_batch("PRAGMA user_version=1;").map_err(err)?;}
         drop(db);
-        for mut task in library.tasks()? {if matches!(task["status"].as_str(),Some("running"|"paused")) {
+        for mut task in library.tasks()? {if matches!(task["status"].as_str(),Some("queued"|"running"|"paused")) {
             task["status"]=json!("failed");task["error"]=json!("程序上次退出时任务尚未完成，请重试。");library.put_task(&task)?;
         }}
         Ok(library)
     }
 
-    fn db(&self) -> Result<Connection, String> { Connection::open(self.root.join("library.sqlite")).map_err(err) }
+    fn db(&self) -> Result<Connection, String> {
+        let db=Connection::open(self.root.join("library.sqlite")).map_err(err)?;
+        db.busy_timeout(std::time::Duration::from_secs(5)).map_err(err)?;
+        Ok(db)
+    }
     fn all(&self, table: &str) -> Result<Vec<Value>, String> {
         let db = self.db()?;
         let mut stmt = db.prepare(&format!("SELECT data FROM {table} ORDER BY rowid")).map_err(err)?;
@@ -68,6 +72,12 @@ impl Library {
     pub fn put_task(&self, task: &Value) -> Result<(), String> {
         self.db()?.execute("INSERT OR REPLACE INTO tasks(id,data) VALUES(?1,?2)", params![task["id"].as_str(),task.to_string()]).map_err(err)?;
         Ok(())
+    }
+    pub fn put_tasks(&self, tasks: &[Value]) -> Result<(), String> {
+        let mut db=self.db()?;
+        let tx=db.transaction().map_err(err)?;
+        for task in tasks {tx.execute("INSERT OR REPLACE INTO tasks(id,data) VALUES(?1,?2)",params![task["id"].as_str(),task.to_string()]).map_err(err)?;}
+        tx.commit().map_err(err)
     }
     pub fn update_material(&self, mid: &str, changes: &Value) -> Result<Value, String> {
         let mut m = self.get_material(mid)?;
@@ -101,9 +111,6 @@ impl Library {
         }
         tx.commit().map_err(err)?;
         Ok(())
-    }
-    pub fn import_images(&self, files: &[PathBuf], course_id: Option<&str>) -> Result<Value, String> {
-        self.import_images_with_progress(files, course_id, |_, _| Ok(()))
     }
     pub fn import_images_with_progress<F>(&self, files: &[PathBuf], course_id: Option<&str>, mut progress: F) -> Result<Value, String>
     where F: FnMut(usize, usize) -> Result<(), String> {
@@ -147,7 +154,8 @@ impl Library {
             m["media"] = json!(media);
             m.as_object_mut().unwrap().remove("files");
         }
-        let mut settings = self.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":4,"timeout":30,"retries":3,"sleepMs":100}))?;
+        let mut settings = self.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":2,"timeout":30,"retries":3,"sleepMs":100}))?;
+        settings["maxWorkers"]=json!(settings["maxWorkers"].as_u64().unwrap_or(2).clamp(1,4));
         settings["libraryDir"] = json!(self.root.display().to_string());
         Ok(json!({"materials":materials,"courseLibrary":self.courses()?,"reviewQueue":self.setting("reviewQueue",json!([]))?,"tasks":self.tasks()?,"settings":settings,
             "lastMaterial":self.setting("lastMaterial",Value::Null)?,"loggedIn":false,"courses":[],"scanned":false,"scanError":"","appVersion":env!("CARGO_PKG_VERSION"),"packaged":false,"scanning":false}))
@@ -197,12 +205,14 @@ mod tests {
         let combined=root.join("combined.pdf");crate::pdf::export_combined(&library,&[updated.clone(),selected_pdf],&combined).unwrap();
         assert_eq!(lopdf::Document::load(&combined).unwrap().get_pages().len(),3);
         assert!(source.iter().all(|p|p.exists()));
-        library.put_task(&json!({"id":"interrupted","type":"download","status":"running"})).unwrap();
+        let queued=(0..4).map(|i|json!({"id":format!("queued-{i}"),"type":"download","status":"queued","title":format!("课次 {i}")})).collect::<Vec<_>>();
+        library.put_tasks(&queued).unwrap();
+        assert_eq!(library.snapshot().unwrap()["tasks"].as_array().unwrap().len(),4);
         drop(library);
         let again=Library::open(root.join("library")).unwrap();
         assert_eq!(again.get_material(material["id"].as_str().unwrap()).unwrap()["excluded"],json!([2]));
         assert_eq!(again.courses().unwrap().len(),1);
-        assert_eq!(again.tasks().unwrap()[0]["status"],json!("failed"));
+        assert!(again.tasks().unwrap().iter().all(|task|task["status"]=="failed"));
         fs::remove_dir_all(root).unwrap();
     }
 }

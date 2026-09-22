@@ -35,8 +35,18 @@ function call(command,data={}){
   if(!window.keyeInvoke)return Promise.reject(new Error('桌面服务尚未连接，请通过课页启动程序打开。'));
   return window.keyeInvoke(command,data);
 }
-function toast(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),6500);}
+function toast(message,duration=6500){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toast.timer);if(duration>0)toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),duration);}
 function fail(error){toast(error.message||String(error));}
+async function submitExport(command,data,doneMessage){
+  if(view.exporting)return toast('正在导出上一份课件，请稍候。');
+  view.exporting=true;
+  toast('正在生成 PDF，完成后会在这里提示…',0);
+  try{
+    const result=await call(command,data);
+    toast(result?doneMessage:'已取消导出，没有生成文件。');
+    return result;
+  }finally{view.exporting=false;}
+}
 function applySnapshot(snapshot){
   const fullscreenOpen=modal.open&&modal.classList.contains('fullscreen-modal');
   const oldMode=state.settings.exportMode;
@@ -69,7 +79,7 @@ function hydrate(){document.querySelectorAll('[data-icon]').forEach(el=>el.inner
 function renderShell(){
   $('#app-version').textContent='v'+(state.appVersion||'0.2.0');
   document.body.classList.toggle('editing-course',view.page==='editor');
-  const running=state.tasks.filter(t=>['running','paused'].includes(t.status)).length;
+  const running=state.tasks.filter(t=>['queued','running','paused'].includes(t.status)).length;
   $('#nav').innerHTML=[['library','资料库','library'],['acquire','获取课件','download'],['tasks','任务','tasks'],['about','关于','about']].map(([id,label,i])=>`<button class="nav-item ${(view.page===id||(id==='library'&&['editor','course'].includes(view.page)))?'active':''}" data-nav="${id}">${icon(i)}${label}${id==='tasks'&&running?`<span class="nav-count">${running}</span>`:''}</button>`).join('');
   $('[data-nav="settings"]').classList.toggle('active',view.page==='settings');
   $('#breadcrumb').innerHTML=`工作空间 <span>/</span> ${view.page==='editor'?`资料库 <span>/</span> ${esc(material()?.title||'课件整理')}`:({course:'课程课件',library:'资料库',acquire:'获取课件',tasks:'任务',about:'关于',settings:'设置'}[view.page])}`;
@@ -101,19 +111,19 @@ function slide(m,page=1,thumb=false){
 function renderFlatAcquire(){
   const rows=availableCourses;
   const exists=id=>activeMaterials().some(m=>m.sourceKey===id);
-  const scheduled=id=>state.tasks.some(t=>t.sourceKey===id&&['running','paused'].includes(t.status));
+  const scheduled=id=>state.tasks.some(t=>t.sourceKey===id&&['queued','running','paused'].includes(t.status));
   main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">BRING YOUR MATERIALS TOGETHER</div><h1>获取课件</h1><p class="subtitle">从课堂平台获取，或把已有资料带进来。</p></div><span class="badge ${view.loggedIn?'exported':'pending'}">${view.loggedIn?'学校平台已连接':'尚未连接学校平台'}</span></div><div class="source-row"><section class="panel source-card"><div class="source-logo">${icon('school')}</div><div><h3>华工视频平台</h3><p class="${view.loggedIn?'connected':''}">${view.loggedIn?'学校平台已连接 · 凭据仅保存在本次运行中':'连接学校平台，按上课日期查找课件'}</p></div><button data-action="login" class="secondary">${view.loggedIn?'重新登录':'连接平台'}</button>${view.loggedIn?'<button class="quiet" data-action="logout">断开</button>':''}</section><section class="panel source-card"><div class="source-logo" style="background:#f2f1ed;color:#979481">${icon('folder')}</div><div><h3>本地资料</h3><p>图片、PDF 或旧版下载目录</p></div><button data-action="import">导入 ${icon('plus')}</button></section></div>
     <section class="panel scan-panel"><div class="scan-bar"><label class="field">开始日期<input type="date" id="scan-start" value="${view.scanStart}"></label><label class="field">结束日期<input type="date" id="scan-end" value="${view.scanEnd}"></label><button class="primary" data-action="scan" ${!view.loggedIn||view.scanning?'disabled':''}>${icon('search')}${view.scanning?'正在扫描…':'立即重新扫描'}</button><span class="scan-note">登录或修改日期后自动扫描，也可手动强制刷新</span></div>
     ${view.scanning?empty('正在读取课表…','可以切换到其他页面，扫描会继续。'):state.scanError?empty('扫描失败',esc(state.scanError)):view.scanned?rows.length?`<div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="scan-all" aria-label="选择所有可获取课件"></th><th>课程</th><th>上课日期</th><th>页数</th><th>资料状态</th></tr></thead><tbody>${rows.map(c=>`<tr><td><input type="checkbox" data-scan-select="${esc(c.id)}" aria-label="选择 ${esc(c.title)}" ${view.scanSelected.has(c.id)?'checked':''} ${exists(c.id)||scheduled(c.id)?'disabled':''}></td><td><div class="course-title">${esc(c.title)}</div><small>课次 ${esc(c.sub_id)}</small></td><td>${esc(c.day)}</td><td><small>获取后统计</small></td><td>${exists(c.id)?'<span class="badge exported">已在资料库</span>':scheduled(c.id)?'<span class="badge editing">获取中</span>':'<span class="badge pending">可获取</span>'}</td></tr>`).join('')}</tbody></table></div>`:empty('这个日期范围内没有课程','请选择实际有课的日期，或重新登录后再试。'):empty(view.loggedIn?'选择日期，开始查找课件':'连接平台后查找课件',view.loggedIn?'扫描结果会显示在这里。':'在学校网页中完成登录，课页会自动检测并开始扫描。')}
     <div class="scan-bottom"><span>已选择 <strong>${view.scanSelected.size}</strong> 节课</span><div class="actions"><label title="无需整理，下载完成后自动生成 PDF"><input type="checkbox" id="direct-export" ${view.directExport?'checked':''}>获取完成后自动导出 PDF</label><button class="primary" data-action="download" ${!view.scanSelected.size||view.scanning?'disabled':''}>${icon('download')}获取选中课件</button></div></div></section><div class="helper-note">${icon('info')}<span>整理不是导出的前置条件：可以下载后自动导出，也可以在课程页随时快速导出。<br>快速导出使用当前保留页面，保存到默认目录；原始页面始终保留。</span></div>`;
 }
 function renderTasks(){
-  const tasks=state.tasks.filter(t=>view.taskFilter==='all'||(view.taskFilter==='active'?['running','paused'].includes(t.status):view.taskFilter==='failed'?t.status==='failed':t.status==='done'));
-  main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">LET THE WORK CONTINUE</div><h1>任务</h1><p class="subtitle">下载和导出在这里继续，你可以放心切换页面。</p></div><button data-nav="acquire">${icon('plus')}获取课件</button></div><div class="toolbar"><div class="tabs">${[['all','全部任务'],['active','进行中'],['done','已完成'],['failed','失败']].map(([id,label])=>`<button data-task-filter="${id}" class="${view.taskFilter===id?'active':''}">${label}</button>`).join('')}</div></div>${tasks.length?`<div class="task-list">${[...tasks].reverse().map(t=>`<article class="task-row"><div class="task-icon">${icon(t.type==='export'?'export':t.type==='scan'?'search':'download')}</div><div class="task-copy"><h3>${esc(t.title)}</h3><p>${{download:'下载',export:'导出',batch:'批量导出',import:'导入',scan:'扫描'}[t.type]} · ${{running:'正在处理',paused:'已暂停',done:'已完成',cancelled:'已取消',failed:'失败'}[t.status]}${['running','paused'].includes(t.status)?` · ${t.progress}% · ${esc(t.message)}`:''}</p>${t.error?`<p class="task-error">${esc(t.error)}</p>`:''}${['running','paused'].includes(t.status)?`<div class="task-progress"><span style="width:${t.progress}%"></span></div>`:''}</div><div class="actions">${['running','paused'].includes(t.status)?`${t.type==='scan'?'':`<button data-task-toggle="${t.id}">${icon(t.status==='paused'?'play':'pause')}${t.status==='paused'?'继续':'暂停'}</button>`}<button data-task-cancel="${t.id}">取消</button>`:t.status==='done'?t.materialId?`<button data-open="${t.materialId}" ${!activeMaterials().some(m=>m.id===t.materialId)?'disabled':''}>打开课件 ${icon('arrow')}</button>${['export','batch'].includes(t.type)?`<button data-output="${t.materialId}">打开目录</button>`:''}`:'<button data-nav="acquire">查看课表</button>':t.type==='scan'?'<button data-nav="acquire">重新扫描</button>':`<button data-task-retry="${t.id}">重试</button>`}</div></article>`).join('')}</div>`:empty('暂无'+(view.taskFilter==='active'?'进行中的':'')+'任务','获取课件或导入本地文件后，任务记录会出现在这里。','<button class="primary" data-nav="acquire">前往获取课件</button>')}`;
+  const tasks=state.tasks.filter(t=>view.taskFilter==='all'||(view.taskFilter==='active'?['queued','running','paused'].includes(t.status):view.taskFilter==='failed'?t.status==='failed':t.status==='done'));
+  main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">LET THE WORK CONTINUE</div><h1>任务</h1><p class="subtitle">下载和导出在这里继续，你可以放心切换页面。</p></div><button data-nav="acquire">${icon('plus')}获取课件</button></div><div class="toolbar"><div class="tabs">${[['all','全部任务'],['active','进行中'],['done','已完成'],['failed','失败']].map(([id,label])=>`<button data-task-filter="${id}" class="${view.taskFilter===id?'active':''}">${label}</button>`).join('')}</div></div>${tasks.length?`<div class="task-list">${[...tasks].reverse().map(t=>`<article class="task-row"><div class="task-icon">${icon(t.type==='export'?'export':t.type==='scan'?'search':'download')}</div><div class="task-copy"><h3>${esc(t.title)}</h3><p>${{download:'下载',export:'导出',batch:'批量导出',import:'导入',scan:'扫描'}[t.type]} · ${{queued:'等待中',running:'正在处理',paused:'已暂停',done:'已完成',cancelled:'已取消',failed:'失败'}[t.status]}${['queued','running','paused'].includes(t.status)?` · ${t.progress}% · ${esc(t.message)}`:''}</p>${t.error?`<p class="task-error">${esc(t.error)}</p>`:''}${['queued','running','paused'].includes(t.status)?`<div class="task-progress"><span style="width:${t.progress}%"></span></div>`:''}</div><div class="actions">${['queued','running','paused'].includes(t.status)?`${t.type==='scan'?'':`<button data-task-toggle="${t.id}">${icon(t.status==='paused'?'play':'pause')}${t.status==='paused'?'继续':'暂停'}</button>`}<button data-task-cancel="${t.id}">取消</button>`:t.status==='done'?t.materialId?`<button data-open="${t.materialId}" ${!activeMaterials().some(m=>m.id===t.materialId)?'disabled':''}>打开课件 ${icon('arrow')}</button>${['export','batch'].includes(t.type)?`<button data-output="${t.materialId}">打开目录</button>`:''}`:'<button data-nav="acquire">查看课表</button>':t.type==='scan'?'<button data-nav="acquire">重新扫描</button>':`<button data-task-retry="${t.id}">重试</button>`}</div></article>`).join('')}</div>`:empty('暂无'+(view.taskFilter==='active'?'进行中的':'')+'任务','获取课件或导入本地文件后，任务记录会出现在这里。','<button class="primary" data-nav="acquire">前往获取课件</button>')}`;
 }
 function renderSettings(){
   const s=state.settings;
-  main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">MAKE ROOM FOR YOUR KNOWLEDGE</div><h1>设置</h1><p class="subtitle">让资料保存有序，让日常整理更顺手。</p></div></div><div class="settings-grid"><div><section class="panel settings-section"><h2>资料库与存储</h2><div class="setting-row"><div><h3>资料库位置</h3><p>包含原始素材、预览和整理记录，可以整体备份。</p></div><div class="actions"><button data-action="open-library">打开目录</button><button data-action="choose-library">切换资料库</button></div></div><div class="setting-path">${esc(s.libraryDir)}</div><div class="setting-row"><div><h3>保留原始页面</h3><p>排除不删除图片；回收站中的课件可以恢复。</p></div><span class="badge exported">默认保留</span></div><div class="setting-row"><div><h3>自动保存整理进度</h3><p>页面选择写入本地资料库，重新打开可继续。</p></div><span class="badge exported">已开启</span></div></section><section class="panel settings-section"><h2>下载与导出</h2><div class="setting-row"><div><h3>获取课件后</h3><p>下一次获取课件的默认处理方式。</p></div><select id="default-export" class="field-input"><option value="review" ${s.exportMode==='review'?'selected':''}>先整理，再导出</option><option value="direct" ${s.exportMode==='direct'?'selected':''}>直接导出 PDF</option></select></div><div class="setting-row"><div><h3>默认 PDF 导出目录</h3><p>首次导出时选择并记住，也可在这里主动修改。</p></div><button data-action="choose-export-dir">选择目录</button></div><div class="setting-path ${s.exportDir?'':'unset-path'}">${s.exportDir?esc(s.exportDir):'尚未设置 · 首次导出时再选择'}</div><div class="settings-numbers">${[['maxWorkers','图片并发数',1,32],['timeout','请求超时（秒）',5,600],['retries','下载尝试次数',1,10],['sleepMs','请求间隔（毫秒）',0,5000]].map(([id,label,min,max])=>`<label class="field">${label}<input type="number" id="setting-${id}" min="${min}" max="${max}" value="${s[id]}"></label>`).join('')}</div><button class="secondary" data-action="save-settings">保存下载参数</button></section></div><aside class="guide-card">${icon('folder')}<h3 style="margin-top:16px">资料留在本机</h3><p>课页自动生成课程封面；实际页面预览来自下载的课件或导入文件。</p><hr><div class="number">${activeMaterials().length}<span style="font-size:12px;margin-left:8px">份课件</span></div><p>SQLite 保存整理记录<br>原始素材长期保留<br>PDF 单独导出</p><hr><p>切换资料库会打开另一个目录，不会移动或删除当前资料。备份时请先退出应用，再复制整个资料库目录。</p></aside></div>`;
+  main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">MAKE ROOM FOR YOUR KNOWLEDGE</div><h1>设置</h1><p class="subtitle">让资料保存有序，让日常整理更顺手。</p></div></div><div class="settings-grid"><div><section class="panel settings-section"><h2>资料库与存储</h2><div class="setting-row"><div><h3>资料库位置</h3><p>包含原始素材、预览和整理记录，可以整体备份。</p></div><div class="actions"><button data-action="open-library">打开目录</button><button data-action="choose-library">切换资料库</button></div></div><div class="setting-path">${esc(s.libraryDir)}</div><div class="setting-row"><div><h3>保留原始页面</h3><p>排除不删除图片；回收站中的课件可以恢复。</p></div><span class="badge exported">默认保留</span></div><div class="setting-row"><div><h3>自动保存整理进度</h3><p>页面选择写入本地资料库，重新打开可继续。</p></div><span class="badge exported">已开启</span></div></section><section class="panel settings-section"><h2>下载与导出</h2><div class="setting-row"><div><h3>获取课件后</h3><p>下一次获取课件的默认处理方式。</p></div><select id="default-export" class="field-input"><option value="review" ${s.exportMode==='review'?'selected':''}>先整理，再导出</option><option value="direct" ${s.exportMode==='direct'?'selected':''}>直接导出 PDF</option></select></div><div class="setting-row"><div><h3>默认 PDF 导出目录</h3><p>首次导出时选择并记住，也可在这里主动修改。</p></div><button data-action="choose-export-dir">选择目录</button></div><div class="setting-path ${s.exportDir?'':'unset-path'}">${s.exportDir?esc(s.exportDir):'尚未设置 · 首次导出时再选择'}</div><div class="settings-numbers">${[['maxWorkers','同时下载课件数',1,4],['timeout','请求超时（秒）',5,600],['retries','下载尝试次数',1,10],['sleepMs','请求间隔（毫秒）',0,5000]].map(([id,label,min,max])=>`<label class="field">${label}<input type="number" id="setting-${id}" min="${min}" max="${max}" value="${s[id]}"></label>`).join('')}</div><button class="secondary" data-action="save-settings">保存下载参数</button></section></div><aside class="guide-card">${icon('folder')}<h3 style="margin-top:16px">资料留在本机</h3><p>课页自动生成课程封面；实际页面预览来自下载的课件或导入文件。</p><hr><div class="number">${activeMaterials().length}<span style="font-size:12px;margin-left:8px">份课件</span></div><p>SQLite 保存整理记录<br>原始素材长期保留<br>PDF 单独导出</p><hr><p>切换资料库会打开另一个目录，不会移动或删除当前资料。备份时请先退出应用，再复制整个资料库目录。</p></aside></div>`;
 }
 function renderAbout(){
   main.innerHTML=`<section class="about-hero"><div class="about-mark"><img src="/app-icon.svg" alt="课页图标"></div><div class="about-intro"><div class="eyebrow">ABOUT KEYE</div><h1>课页 <span>KEYE</span></h1><p>把课堂课件的获取、筛选和 PDF 导出，整理成一条清楚、安静的工作流。</p><div class="about-actions"><span class="about-version">当前版本 v${esc(state.appVersion||'0.2.0')}</span><button class="secondary" data-action="show-help">${icon('help')}查看使用说明</button></div></div><div class="about-decoration" aria-hidden="true"><i></i><i></i><i></i></div></section>
@@ -244,6 +254,11 @@ async function handleClick(event){
   if(action==='close-modal')return closeModal();
   if(action==='clear-search'){view.search='';renderLibrary();return;}
   if(action==='login'){await call('login');return;}
+  if(['login-home','login-reload','login-check'].includes(action)){
+    const found=await call('loginControl',{action:action.slice(6)});
+    if(action==='login-check'&&!found)toast('尚未检测到完整登录状态，请继续在网页操作。');
+    return;
+  }
   if(action==='logout')return call('logout');
   if(action==='scan'){
     clearTimeout(autoScanTimer);
@@ -252,7 +267,7 @@ async function handleClick(event){
     if(!start||!end||start>end)return toast('请填写有效日期，开始日期不能晚于结束日期。');
     view.scanStart=start;view.scanEnd=end;view.scanSelected.clear();return call('scan',{start,end});
   }
-  if(action==='download'){const ids=[...view.scanSelected];if(await call('download',{ids,direct:view.directExport})){view.scanSelected.clear();toast('课件已加入后台任务');renderAcquire();}return;}
+  if(action==='download'){const ids=[...view.scanSelected];if(await call('download',{ids,direct:view.directExport})){view.scanSelected.clear();navigate('tasks');toast('已将选中课件全部加入任务队列');}return;}
   if(action==='import'){view.importCourseId=view.page==='course'&&view.courseId!=='unfiled'?view.courseId:null;return showModal('导入本地资料',`<p>复制文件到资料库，保留源文件。多张图片合为一份课件，多个 PDF 分别导入。</p><p>选择旧版下载目录时，会按图片文件夹分组；同一课次同时有图片和 PDF 时优先导入图片。</p>`, '<button data-action="close-modal">取消</button><button data-action="import-folder">选择目录</button><button class="primary" data-action="import-files">选择 PDF / 图片</button>');}
   if(action==='import-folder'||action==='import-files'){
     if(view.importChoosing)return toast('文件选择窗口已打开，请先完成选择。');
@@ -274,8 +289,8 @@ async function handleClick(event){
   if(action==='fullscreen')return showFullscreen();
   if(action==='toggle-fullscreen-page'){await mutatePages([view.currentPage],!material().excluded.includes(view.currentPage));return;}
   if(action==='export')return showExport();
-  if(action==='quick-export'){if(await call('quickExport',{id:material().id}))toast('已快速导出到默认目录，可在任务页查看进度');return;}
-  if(action==='confirm-export'){const id=material().id,name=$('#export-name').value.trim();if(!name)return toast('请填写文件名。');closeModal();if(await call('export',{id,name}))toast('PDF 已加入导出任务');return;}
+  if(action==='quick-export'){await submitExport('quickExport',{id:material().id},'PDF 导出完成，可在任务页打开输出目录。');return;}
+  if(action==='confirm-export'){const id=material().id,name=$('#export-name').value.trim();if(!name)return toast('请填写文件名。');closeModal();await submitExport('export',{id,name},'PDF 导出完成，可在任务页打开输出目录。');return;}
   if(action==='open-library')return call('openLibrary');
   if(action==='show-help')return showHelp();
   if(action==='check-update'){
@@ -314,7 +329,7 @@ async function handleChange(event){
     view.selectionAnchor=p;view.pageShiftPending=false;renderEditor();
   }
   if(el.matches('[data-scan-select]')){el.checked?view.scanSelected.add(el.dataset.scanSelect):view.scanSelected.delete(el.dataset.scanSelect);renderAcquire();}
-  if(el.id==='scan-all'){availableCourses.filter(c=>!activeMaterials().some(m=>m.sourceKey===c.id)&&!state.tasks.some(t=>t.sourceKey===c.id&&['running','paused'].includes(t.status))).forEach(c=>el.checked?view.scanSelected.add(c.id):view.scanSelected.delete(c.id));renderAcquire();}
+  if(el.id==='scan-all'){availableCourses.filter(c=>!activeMaterials().some(m=>m.sourceKey===c.id)&&!state.tasks.some(t=>t.sourceKey===c.id&&['queued','running','paused'].includes(t.status))).forEach(c=>el.checked?view.scanSelected.add(c.id):view.scanSelected.delete(c.id));renderAcquire();}
   if(el.id==='library-sort'){view.sort=el.value;renderLibrary();}
   if(el.id==='direct-export')view.directExport=el.checked;
   if(el.id==='scan-start'){view.scanStart=el.value;scheduleAutoScan();}

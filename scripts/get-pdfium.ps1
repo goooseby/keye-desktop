@@ -11,6 +11,6 @@ if (-not (Test-Path -LiteralPath $archive)) {
     Invoke-WebRequest -Uri $url -OutFile $archive
 }
 $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-if ($actual -ne $expected) { throw 'PDFium 下载文件校验失败，请删除项目内 .tools/pdfium/pdfium-win-x64.tgz 后重试。' }
+if ($actual -ne $expected) { throw 'PDFium archive checksum mismatch. Remove .tools/pdfium/pdfium-win-x64.tgz from this project and retry.' }
 tar -xzf $archive -C $directory
-if (-not (Test-Path -LiteralPath $env:KEYE_PDFIUM_PATH)) { throw 'PDFium 压缩包未包含预期的 bin/pdfium.dll。' }
+if (-not (Test-Path -LiteralPath $env:KEYE_PDFIUM_PATH)) { throw 'The PDFium archive does not contain bin/pdfium.dll.' }

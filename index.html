@@ -7,11 +7,14 @@
   <link rel="icon" type="image/svg+xml" href="/app-icon.svg">
   <link rel="stylesheet" href="/ui/styles.css">
   <link rel="stylesheet" href="/ui/refresh.css">
+  <link rel="stylesheet" href="/ui/library-home.css">
+  <link rel="stylesheet" href="/ui/titlebar.css">
 </head>
 <body>
+  <div class="app-titlebar" data-tauri-drag-region="deep"><div class="app-titlebar-brand" data-tauri-drag-region><img src="/app-icon.svg" alt="" data-tauri-drag-region><span data-tauri-drag-region>课页</span></div><div class="app-titlebar-spacer" data-tauri-drag-region></div><div class="app-titlebar-controls"><button id="window-minimize" type="button" aria-label="最小化窗口" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button><button id="window-maximize" type="button" aria-label="最大化或还原窗口" title="最大化或还原"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button><button id="window-close" type="button" aria-label="关闭窗口" title="关闭"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div></div>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>课页<span class="brand-app" style="font-size:10px;margin-left:6px;letter-spacing:1px">KEYE</span><small>个人课件资料库</small></span></a>
+      <a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>课页</span></a>
       <div class="workspace-label">我的工作空间</div>
       <nav id="nav" aria-label="主导航"></nav>
       <div class="sidebar-bottom">

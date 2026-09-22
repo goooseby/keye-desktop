@@ -16,11 +16,20 @@ function renderLibrary(){
   if(view.filter==='pending')list=list.filter(c=>c.items.some(m=>!reviewed(m)));
   list.sort((a,b)=>view.sort==='name'?a.title.localeCompare(b.title,'zh'):Math.max(0,...b.items.map(m=>m.touched))-Math.max(0,...a.items.map(m=>m.touched)));
   const last=activeMaterials().find(m=>m.id===state.lastMaterial);
-  main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">YOUR LEARNING LIBRARY</div><h1>资料库</h1><p class="subtitle">以课程收纳课件，按自己的节奏整理每次课堂。</p></div><div class="actions"><button data-course-action="new">新建课程</button><button data-action="import">导入文件</button><button class="primary" data-nav="acquire">获取课件</button></div></div>
-  ${last?`<section class="continue-card"><div class="continue-art">${cover(last)}</div><div class="continue-copy"><div class="overline">继续上次的整理</div><h2>${esc(courseById(last.courseId).title)} · ${esc(last.day)}</h2><p>${esc(last.note||last.title)} · 上次看到第 ${last.lastPage} 页</p><p>${queueMaterials().length>1?`本次整理范围：${queueMaterials().length} 份课件`:'整理记录已自动保存'}</p></div><button class="primary" data-open="${last.id}">继续整理 ${icon('arrow')}</button></section>`:''}
-  <div class="toolbar"><div class="tabs"><button data-filter="all" class="${view.filter==='all'?'active':''}">全部课程</button><button data-filter="pending" class="${view.filter==='pending'?'active':''}">有待整理课件</button><button data-filter="trash">回收站</button></div><label class="search-box">${icon('search')}<input id="library-search" value="${esc(view.search)}" placeholder="搜索课程、日期…"></label></div>
-  <div class="library-tools"><span>${list.length} 门课程 · ${activeMaterials().length} 份课件</span><select id="library-sort"><option value="recent">最近整理优先</option><option value="name" ${view.sort==='name'?'selected':''}>按课程名称</option></select></div>
-  ${list.length?`<div class="course-grid">${list.map(c=>{const pending=c.items.filter(m=>!reviewed(m)).length;const latest=c.items.at(-1);return `<article class="course-card"><button class="course-open" data-nav="course/${c.id}"><div class="course-cover">${cover({title:c.title,term:c.term,day:c.term||'课程资料',pages:c.items.reduce((n,m)=>n+m.pages,0),coverKey:c.id,coverStyle:c.coverStyle,coverPalette:c.coverPalette})}</div><div class="course-info"><h3>${esc(c.title)}</h3><div class="meta">${esc(c.term||'学期未设置')} · ${c.items.length} 份课件</div><div class="course-info-bottom"><span class="badge ${pending?'pending':'exported'}">${pending?pending+' 份待整理':c.items.length?'已全部整理':'等待添加课件'}</span><span>${latest?'最新 '+esc(latest.day):''}</span></div></div></button></article>`;}).join('')}</div>`:empty('这里还没有相关课程','获取课件后自动按课程收纳，也可以新建课程并归入本地资料。','<button class="primary" data-nav="acquire">获取课件</button>')}`;
+  const allMaterials=activeMaterials();
+  const recent=[...allMaterials].sort((a,b)=>Number(b.touched||0)-Number(a.touched||0)).slice(0,4);
+  main.innerHTML=`<div class="page-heading library-home-heading"><div><h1>资料库</h1><p class="subtitle">按课程归档，快速找到需要处理的课件。</p></div><div class="actions"><button data-course-action="new">新建课程</button><button data-action="import">导入文件</button><button class="primary" data-nav="acquire">获取课件</button></div></div>
+  <div class="toolbar library-home-toolbar"><div class="tabs"><button data-filter="all" class="${view.filter==='all'?'active':''}">全部课程</button><button data-filter="pending" class="${view.filter==='pending'?'active':''}">有待整理课件</button><button data-filter="trash">回收站</button></div><label class="search-box">${icon('search')}<input id="library-search" value="${esc(view.search)}" placeholder="搜索课程、日期…"></label></div>
+  <div class="library-home-layout">
+    <section class="library-home-primary" aria-label="课程列表">
+      <div class="library-home-section-heading"><div><h2>课程列表</h2><span>${list.length} 门课程 · 共 ${allMaterials.length} 份课件</span></div><select id="library-sort" aria-label="课程排序"><option value="recent">最近整理优先</option><option value="name" ${view.sort==='name'?'selected':''}>按课程名称</option></select></div>
+      <div class="library-home-list">${list.length?list.map(c=>{const pending=c.items.filter(m=>!reviewed(m)).length,latest=c.items.at(-1),pages=c.items.reduce((n,m)=>n+m.pages,0);return `<button class="library-home-row" data-nav="course/${esc(c.id)}" aria-label="打开课程 ${esc(c.title)}"><span class="library-home-cover">${cover({title:c.title,term:c.term,day:c.term||'课程资料',pages,coverKey:c.id,coverStyle:c.coverStyle,coverPalette:c.coverPalette})}</span><span class="library-home-course"><strong>${esc(c.title)}</strong><small>${esc(c.term||'学期未设置')}${latest?` · 最新 ${esc(latest.day)}`:''}</small></span><span class="library-home-count"><strong>${c.items.length} 份课件</strong><small>${pages} 页</small></span><span class="badge ${pending?'pending':'exported'}">${pending?pending+' 份待整理':c.items.length?'已全部整理':'等待添加课件'}</span><span class="library-home-enter">进入 ${icon('arrow')}</span></button>`;}).join(''):empty('这里还没有相关课程','获取课件后自动按课程收纳，也可以新建课程并归入本地资料。','<button class="primary" data-nav="acquire">获取课件</button>')}</div>
+    </section>
+    <aside class="library-home-side" aria-label="最近整理与动态">
+      <section class="library-home-panel library-home-resume"><h2>继续整理</h2>${last?`<strong>${esc(courseById(last.courseId).title)}</strong><p>${esc(last.day)} · ${esc(last.note||last.title)}</p><p>上次看到第 ${Number(last.lastPage||1)} / ${last.pages} 页</p><button class="primary" data-open="${esc(last.id)}">继续整理 ${icon('arrow')}</button>`:`<p>打开课件后，整理进度会自动保存在这里。</p><button data-nav="acquire">获取课件</button>`}</section>
+      <section class="library-home-panel library-home-activity"><h2>最近课件</h2>${recent.length?recent.map(m=>`<button data-open="${esc(m.id)}"><strong>${esc(courseById(m.courseId).title)} · ${esc(m.note||m.title)}</strong><small>${esc(m.day)} · ${reviewed(m)?'已整理':'待整理'} · ${m.pages} 页</small></button>`).join(''):'<p>最近打开的课件会显示在这里。</p>'}</section>
+    </aside>
+  </div>`;
 }
 
 function visibleSessions(){return sessions(view.courseId).filter(m=>(view.courseFilter!=='pending'||!reviewed(m))&&(!view.courseFrom||m.day>=view.courseFrom)&&(!view.courseTo||m.day<=view.courseTo));}
@@ -50,10 +59,10 @@ function renderEditor(){
 
 function renderAcquire(){
   renderFlatAcquire();
-  if(state.loginStatus)main.querySelector('.source-row')?.insertAdjacentHTML('afterend',`<p class="login-status" role="status">${esc(state.loginStatus)}</p>`);
+  if(state.loginStatus)main.querySelector('.source-row')?.insertAdjacentHTML('afterend',`<div class="login-status" role="status"><span>${esc(state.loginStatus)}</span>${state.loginWindowOpen?`<div class="login-status-actions"><button data-action="login-home">平台首页</button><button data-action="login-reload">刷新网页</button><button data-action="login-check">立即检测</button></div>`:''}</div>`);
   const table=main.querySelector('.table-wrap');if(!table)return;
   const groups=new Map();availableCourses.forEach(c=>{const key=c.groupId||String(c.course_id);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(c);});
-  const unavailable=c=>activeMaterials().some(m=>m.sourceKey===c.id)||state.tasks.some(t=>t.sourceKey===c.id&&['running','paused'].includes(t.status));
+  const unavailable=c=>activeMaterials().some(m=>m.sourceKey===c.id)||state.tasks.some(t=>t.sourceKey===c.id&&['queued','running','paused'].includes(t.status));
   table.innerHTML=`<div class="scan-group-tools"><label><input type="checkbox" id="scan-all"> 选择全部尚未获取课件</label><span>${groups.size} 门课程 · ${availableCourses.length} 节课</span></div>${[...groups].map(([id,items])=>{const fresh=items.filter(c=>!unavailable(c)),chosen=fresh.filter(c=>view.scanSelected.has(c.id));return `<section class="scan-course"><div class="scan-course-heading"><input type="checkbox" data-scan-group="${esc(id)}" ${fresh.length&&chosen.length===fresh.length?'checked':''} ${fresh.length?'':'disabled'} aria-label="选择 ${esc(items[0].title)} 尚未获取课件"><button data-scan-expand="${esc(id)}"><strong>${esc(items[0].title)}</strong><span>本次 ${items.length} 节 · 已获取 / 获取中 ${items.length-fresh.length} · 新增 ${fresh.length}</span></button><button data-scan-expand="${esc(id)}">${view.scanExpanded.has(id)?'收起课次':'查看课次'}</button></div>${view.scanExpanded.has(id)?`<div class="scan-lectures">${items.slice().sort((a,b)=>a.day.localeCompare(b.day)).map(c=>`<label><input type="checkbox" data-scan-select="${esc(c.id)}" ${view.scanSelected.has(c.id)?'checked':''} ${unavailable(c)?'disabled':''}><span>${esc(c.day)}</span><small>课次 ${esc(c.sub_id)}</small><span class="badge ${unavailable(c)?'exported':'pending'}">${unavailable(c)?'已获取 / 获取中':'可获取'}</span></label>`).join('')}</div>`:''}</section>`;}).join('')}`;
   table.querySelectorAll('[data-scan-group]').forEach(el=>{const items=groups.get(el.dataset.scanGroup).filter(c=>!unavailable(c));const n=items.filter(c=>view.scanSelected.has(c.id)).length;el.indeterminate=n>0&&n<items.length;});
   const eligible=availableCourses.filter(c=>!unavailable(c));const count=eligible.filter(c=>view.scanSelected.has(c.id)).length;
@@ -71,7 +80,7 @@ async function courseClick(b){
   if(b.dataset.deleteSession){view.sessionMenuId=null;await call('trash',{id:b.dataset.deleteSession,deleted:true});toast('已移入回收站，可随时恢复');return true;}
   if(b.dataset.scanExpand){const id=b.dataset.scanExpand;view.scanExpanded.has(id)?view.scanExpanded.delete(id):view.scanExpanded.add(id);renderAcquire();return true;}
   if(b.dataset.courseSession){await startReview([state.materials.find(m=>m.id===b.dataset.courseSession)]);return true;}
-  if(b.dataset.quickExport){if(await call('quickExport',{id:b.dataset.quickExport}))toast('已快速导出到默认目录，可在任务页查看进度');return true;}
+  if(b.dataset.quickExport){await submitExport('quickExport',{id:b.dataset.quickExport},'PDF 导出完成，可在任务页打开输出目录。');return true;}
   if(b.dataset.note){const m=state.materials.find(m=>m.id===b.dataset.note);showModal('课件备注',`<p>${esc(m.day)} · ${esc(m.title)}</p><label class="field">内容备注<input id="session-note" type="text" maxlength="120" value="${esc(m.note||'')}" placeholder="例如：线性规划的图解法"></label>`,`<button data-action="close-modal">取消</button><button class="primary" data-save-note="${m.id}">保存</button>`);return true;}
   if(b.dataset.saveNote){await call('materialNote',{id:b.dataset.saveNote,note:$('#session-note').value});closeModal();return true;}
   const action=b.dataset.courseAction;if(!action)return false;
@@ -99,9 +108,9 @@ async function courseClick(b){
     const items=selectedSessions(),pages=items.reduce((n,m)=>n+m.pages-m.excluded.length,0),pending=items.filter(m=>!reviewed(m)).length;
     showModal('导出选中课件',`<p>按上课日期顺序，导出 ${items.length} 份课件，共 ${pages} 页。</p>${pending?`<div class="notice">其中 ${pending} 份尚未确认整理完成，将使用当前保留的页面。</div>`:''}<label class="field">导出方式<select id="batch-mode" class="field-input"><option value="separate">分别导出，按课程保存到文件夹</option><option value="combined">合并为一个 PDF，按课次添加书签</option></select></label><p>分别导出时，已完成的文件会保留；取消或重试不会覆盖这些文件。</p>`,'<button data-action="close-modal">取消</button><button class="primary" data-course-action="confirm-batch">选择位置并导出</button>');
   }else if(action==='confirm-batch'){
-    const mode=$('#batch-mode').value,ids=selectedSessions().map(m=>m.id);closeModal();if(await call('batchExport',{ids,mode})){toast('已加入导出任务');navigate('tasks');}
+    const mode=$('#batch-mode').value,ids=selectedSessions().map(m=>m.id);closeModal();if(await submitExport('batchExport',{ids,mode},'选中课件已导出完成。'))navigate('tasks');
   }else if(action==='quick-batch'){
-    if(await call('batchExport',{ids:selectedSessions().map(m=>m.id),mode:'separate',quick:true})){toast('已快速导出到默认目录');navigate('tasks');}
+    if(await submitExport('batchExport',{ids:selectedSessions().map(m=>m.id),mode:'separate',quick:true},'选中课件已快速导出完成。'))navigate('tasks');
   }
   return true;
 }
@@ -109,6 +118,6 @@ function courseChange(el){
   if(el.dataset.sessionSelect){el.checked?view.courseSelected.add(el.dataset.sessionSelect):view.courseSelected.delete(el.dataset.sessionSelect);renderCourse();return true;}
   const fields={'course-filter':'courseFilter','course-from':'courseFrom','course-to':'courseTo'};
   if(fields[el.id]){view[fields[el.id]]=el.value;renderCourse();return true;}
-  if(el.dataset.scanGroup){availableCourses.filter(c=>(c.groupId||String(c.course_id))===el.dataset.scanGroup&&!activeMaterials().some(m=>m.sourceKey===c.id)&&!state.tasks.some(t=>t.sourceKey===c.id&&['running','paused'].includes(t.status))).forEach(c=>el.checked?view.scanSelected.add(c.id):view.scanSelected.delete(c.id));renderAcquire();return true;}
+  if(el.dataset.scanGroup){availableCourses.filter(c=>(c.groupId||String(c.course_id))===el.dataset.scanGroup&&!activeMaterials().some(m=>m.sourceKey===c.id)&&!state.tasks.some(t=>t.sourceKey===c.id&&['queued','running','paused'].includes(t.status))).forEach(c=>el.checked?view.scanSelected.add(c.id):view.scanSelected.delete(c.id));renderAcquire();return true;}
   return false;
 }

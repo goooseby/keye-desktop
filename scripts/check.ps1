@@ -7,5 +7,5 @@ if (Get-Command cargo -ErrorAction SilentlyContinue) {
     cargo check --manifest-path src-tauri/Cargo.toml
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
-    Write-Warning '未找到项目内 Rust 工具链，仅完成前端构建。'
+    Write-Warning 'The project-local Rust toolchain is missing; only the frontend was checked.'
 }

@@ -1,13 +1,45 @@
 use crate::library::{is_image, Library};
 use serde_json::{json, Value};
-use std::{collections::HashMap,fs, path::{Path, PathBuf}, sync::{Arc,Mutex,RwLock,atomic::{AtomicBool,Ordering}}};
+use std::{collections::{HashMap,HashSet},fs, path::{Path, PathBuf}, sync::{Arc,Condvar,Mutex,RwLock,atomic::{AtomicBool,Ordering}}};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri::menu::{Menu,MenuItem,Submenu};
 
-pub struct TaskControl { paused: AtomicBool, cancelled: AtomicBool }
-impl TaskControl {fn new()->Self{Self{paused:AtomicBool::new(false),cancelled:AtomicBool::new(false)}}}
+const LOGIN_TOOLBAR_SCRIPT: &str = r#"
+(() => {
+  if (window.top !== window) return;
+  const mount = () => {
+    if (!document.body || document.getElementById('keye-login-toolbar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'keye-login-toolbar';
+    bar.style.cssText = 'position:fixed;top:12px;right:16px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid #c8dbd1;border-radius:10px;background:#fafffc;box-shadow:0 5px 20px #173a3040;color:#244c3a;font:12px Microsoft YaHei,Segoe UI,sans-serif;';
+    const note = document.createElement('span');
+    note.textContent = '课页 · 登录后自动返回';
+    note.style.cssText = 'font-weight:600;margin:0 6px;white-space:nowrap;';
+    bar.append(note);
+    for (const [label, action] of [['平台首页', 'home'], ['刷新网页', 'reload'], ['立即检测', 'check']]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.style.cssText = 'font:inherit;color:#175f49;border:1px solid #c8dbd1;border-radius:6px;background:#fff;padding:5px 8px;cursor:pointer;white-space:nowrap;';
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        if (action === 'check') note.textContent = '正在检测登录状态…';
+        window.location.assign('keye-login://' + action);
+      });
+      bar.append(button);
+    }
+    document.body.append(bar);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
+  else mount();
+})();
+"#;
+
+pub struct TaskControl { paused: AtomicBool, cancelled: AtomicBool, started: AtomicBool }
+impl TaskControl {fn new()->Self{Self{paused:AtomicBool::new(false),cancelled:AtomicBool::new(false),started:AtomicBool::new(false)}}}
 #[derive(Default)]
 pub struct Runtime { pub auth: Option<crate::platform::Auth>, pub courses: Vec<Value>, pub scanned: bool, pub scanning: bool, pub scan_error: String, pub login_status: String, pub login_window: Option<String>, pub controls: HashMap<String,Arc<TaskControl>> }
-pub struct AppState { pub library: Arc<RwLock<Arc<Library>>>, pub base: PathBuf, pub runtime: Arc<Mutex<Runtime>>, pub import_busy: Arc<AtomicBool> }
+pub struct AppState { pub library: Arc<RwLock<Arc<Library>>>, pub base: PathBuf, pub runtime: Arc<Mutex<Runtime>>, pub import_busy: Arc<AtomicBool>, pub download_gate: Arc<(Mutex<usize>,Condvar)>, pub download_enqueue: Mutex<()>, pub export_lock: Mutex<()> }
 fn text<'a>(v: &'a Value, key: &str) -> &'a str { v[key].as_str().unwrap_or("") }
 fn required<'a>(v: &'a Value,key:&str)->Result<&'a str,String>{v[key].as_str().filter(|s|!s.is_empty()).ok_or_else(||format!("缺少 {key}。"))}
 fn snapshot(app:&AppHandle,library:&Library)->Result<Value,String>{
@@ -17,6 +49,7 @@ fn snapshot(app:&AppHandle,library:&Library)->Result<Value,String>{
     value["loggedIn"]=json!(runtime.auth.is_some());value["courses"]=json!(runtime.courses);
     value["scanned"]=json!(runtime.scanned);value["scanning"]=json!(runtime.scanning);value["scanError"]=json!(runtime.scan_error);
     value["loginStatus"]=json!(runtime.login_status);
+    value["loginWindowOpen"]=json!(runtime.login_window.as_ref().is_some_and(|label|app.get_webview_window(label).is_some()));
     Ok(value)
 }
 fn sync(app: &AppHandle, library: &Library) -> Result<(), String> { app.emit("snapshot-changed",snapshot(app,library)?).map_err(|e|e.to_string()) }
@@ -35,6 +68,7 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
     match command {
         "snapshot" => snapshot(app,lib),
         "login" => login(app,lib),
+        "loginControl" => login_control(app,data),
         "logout" => {let state=app.state::<AppState>();let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;runtime.auth=None;runtime.courses.clear();runtime.scanned=false;runtime.login_status.clear();drop(runtime);sync(app,lib)?;Ok(json!(true))}
         "scan" => scan(app,lib,data),
         "download" => download(app,lib,data),
@@ -53,8 +87,8 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
         "openMaterial" => {let mid=required(data,"id")?;if lib.get_material(mid)?["deleted"]==true{return Err("请先恢复课件。".into());}lib.set_setting("lastMaterial",&json!(mid))?;Ok(json!(true))}
         "lastPage" => {let mid=required(data,"id")?;let m=lib.get_material(mid)?;let page=data["page"].as_u64().unwrap_or(1).clamp(1,m["pages"].as_u64().unwrap_or(1));lib.update_material(mid,&json!({"lastPage":page}))?;Ok(json!(true))}
         "trash" => {lib.update_material(required(data,"id")?,&json!({"deleted":data["deleted"]==true,"touched":timestamp()}))?;sync(app,lib)?;Ok(json!(true))}
-        "settings" => {let mut settings=lib.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":4,"timeout":30,"retries":3,"sleepMs":100}))?;
-            for (key,lo,hi) in [("maxWorkers",1,32),("timeout",5,600),("retries",1,10),("sleepMs",0,5000)] {if !data[key].is_null(){let n=data[key].as_i64().ok_or("设置值无效。")?;if n<lo||n>hi{return Err(format!("{key} 超出范围。"));}settings[key]=json!(n);}}
+        "settings" => {let mut settings=lib.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":2,"timeout":30,"retries":3,"sleepMs":100}))?;
+            for (key,lo,hi) in [("maxWorkers",1,4),("timeout",5,600),("retries",1,10),("sleepMs",0,5000)] {if !data[key].is_null(){let n=data[key].as_i64().ok_or("设置值无效。")?;if n<lo||n>hi{return Err(format!("{key} 超出范围。"));}settings[key]=json!(n);}}
             if !data["exportMode"].is_null(){let mode=text(data,"exportMode");if mode!="review"&&mode!="direct"{return Err("获取方式无效。".into());}settings["exportMode"]=json!(mode);}
             lib.set_setting("settings",&settings)?;sync(app,lib)?;Ok(json!(true))}
         "import" => import(app,lib,data),
@@ -99,9 +133,49 @@ fn login(app:&AppHandle,lib:&Library)->Result<Value,String>{
     app.run_on_main_thread(move||{
         let result=(||{
             let url=tauri::Url::parse("https://video.jw.scut.edu.cn/").map_err(|e|e.to_string())?;
+            let home=MenuItem::with_id(&app_handle,"login-home","返回平台首页",true,None::<&str>).map_err(|e|e.to_string())?;
+            let reload=MenuItem::with_id(&app_handle,"login-reload","重新加载网页",true,Some("Ctrl+R")).map_err(|e|e.to_string())?;
+            let check=MenuItem::with_id(&app_handle,"login-check","立即检测登录状态",true,None::<&str>).map_err(|e|e.to_string())?;
+            let tools=Submenu::with_items(&app_handle,"登录工具",true,&[&home,&reload,&check]).map_err(|e|e.to_string())?;
+            let menu=Menu::with_items(&app_handle,&[&tools]).map_err(|e|e.to_string())?;
+            let menu_app=app_handle.clone();let menu_label=window_label.clone();
+            let nav_app=app_handle.clone();let nav_label=window_label.clone();
             tauri::WebviewWindowBuilder::new(&app_handle,&window_label,tauri::WebviewUrl::External(url))
-                .title("登录华工视频平台 · 完成后可关闭此窗口")
+                .title("登录华工视频平台 · 登录成功后自动关闭")
                 .inner_size(1100.0,760.0).incognito(true).data_directory(profile)
+                .initialization_script(LOGIN_TOOLBAR_SCRIPT)
+                .on_page_load(|window,payload|{
+                    if matches!(payload.event(),tauri::webview::PageLoadEvent::Finished){let _=window.eval(LOGIN_TOOLBAR_SCRIPT);}
+                })
+                .menu(menu)
+                .on_navigation(move|url|{
+                    if url.scheme()!="keye-login"{return true;}
+                    let action=url.host_str().unwrap_or("").to_string();
+                    let app=nav_app.clone();let label=nav_label.clone();
+                    std::thread::spawn(move||{
+                        let Some(window)=app.get_webview_window(&label) else{return};
+                        match action.as_str(){
+                            "home"=>{if let Ok(url)=tauri::Url::parse("https://video.jw.scut.edu.cn/"){let _=window.navigate(url);}},
+                            "reload"=>{let _=window.reload();},
+                            "check"=>{let _=check_login_cookies(&app,&label,true);},
+                            _=>{}
+                        }
+                    });
+                    false
+                })
+                .on_menu_event(move|_,event|{
+                    let Some(window)=menu_app.get_webview_window(&menu_label) else{return};
+                    if event.id()==home.id(){if let Ok(url)=tauri::Url::parse("https://video.jw.scut.edu.cn/"){let _=window.navigate(url);}}
+                    else if event.id()==reload.id(){let _=window.reload();}
+                    else if event.id()==check.id(){let app=menu_app.clone();let label=menu_label.clone();std::thread::spawn(move||{
+                        if let Err(error)=check_login_cookies(&app,&label,true){
+                            let state=app.state::<AppState>();
+                            if let Ok(mut runtime)=state.runtime.lock(){runtime.login_status=error.clone();}
+                            if let Some(window)=app.get_webview_window(&label){let _=window.set_title(&error);}
+                            if let Ok(library)=state.library.read(){let _=sync(&app,&library);};
+                        }
+                    });}
+                })
                 .build().map_err(|e|e.to_string())?;
             Ok::<(),String>(())
         })();
@@ -122,21 +196,13 @@ fn login(app:&AppHandle,lib:&Library)->Result<Value,String>{
     sync(app,lib)?;
     let app_handle=app.clone();
     std::thread::spawn(move||{
-        let url=match tauri::Url::parse("https://video.jw.scut.edu.cn/"){Ok(url)=>url,Err(_)=>return};
         for _ in 0..450 {
             std::thread::sleep(std::time::Duration::from_secs(2));
-            let Some(window)=app_handle.get_webview_window(&label) else{break};
-            let Ok(cookies)=window.cookies_for_url(url.clone()) else{continue};
-            let Some(auth)=crate::platform::parse_cookies(&cookies) else{continue};
-            let state=app_handle.state::<AppState>();
-            if let Ok(mut runtime)=state.runtime.lock(){runtime.auth=Some(auth);runtime.scanned=false;runtime.courses.clear();runtime.login_status="已连接学校平台，可以关闭登录窗口。".into();}
-            let _=window.set_title("已连接学校平台 · 可以关闭此窗口");
-            if let Ok(library)=state.library.read(){let _=sync(&app_handle,&library);}
-            let _=app_handle.emit("notice","已连接学校平台，正在自动扫描课表。可以关闭登录窗口。");
-            return;
+            if app_handle.get_webview_window(&label).is_none(){break;}
+            if check_login_cookies(&app_handle,&label,false).unwrap_or(false){return;}
         }
         let state=app_handle.state::<AppState>();
-        if let Ok(mut runtime)=state.runtime.lock(){if runtime.login_window.as_deref()==Some(&label)&&runtime.auth.is_none(){runtime.login_status="登录窗口已关闭或等待超时；请点击连接平台重试。".into();}}
+        if let Ok(mut runtime)=state.runtime.lock(){if runtime.login_window.as_deref()==Some(&label){runtime.login_window=None;if runtime.auth.is_none(){runtime.login_status="登录窗口已关闭或等待超时；请点击连接平台重试。".into();}}}
         if let Ok(library)=state.library.read(){let _=sync(&app_handle,&library);};
     });
     Ok(json!(true))
@@ -157,60 +223,152 @@ fn scan(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
     result.map(|_|json!(true))
 }
 
+const MAX_COURSE_DOWNLOADS: usize = 4;
+
+struct DownloadPermit(Arc<(Mutex<usize>,Condvar)>);
+impl Drop for DownloadPermit {
+    fn drop(&mut self) {
+        let (count,ready)=&*self.0;
+        if let Ok(mut active)=count.lock(){*active=active.saturating_sub(1);ready.notify_all();}
+    }
+}
+fn login_control(app:&AppHandle,data:&Value)->Result<Value,String>{
+    let state=app.state::<AppState>();
+    let label=state.runtime.lock().map_err(|_|"运行状态无法读取。")?.login_window.clone().ok_or("登录窗口已关闭，请重新连接。")?;
+    let window=app.get_webview_window(&label).ok_or("登录窗口已关闭，请重新连接。")?;
+    match text(data,"action"){
+        "home"=>{window.navigate(tauri::Url::parse("https://video.jw.scut.edu.cn/").map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;Ok(json!(true))},
+        "reload"=>{window.reload().map_err(|e|e.to_string())?;Ok(json!(true))},
+        "check"=>check_login_cookies(app,&label,true).map(|found|json!(found)),
+        _=>Err("登录操作无效。".into())
+    }
+}
+fn acquire_download_slot(gate:&Arc<(Mutex<usize>,Condvar)>,limit:usize,control:&TaskControl)->Result<DownloadPermit,String>{
+    let (count,ready)=&**gate;
+    let mut active=count.lock().map_err(|_|"下载队列无法使用。".to_string())?;
+    loop {
+        if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
+        if !control.paused.load(Ordering::SeqCst)&&*active<limit {
+            *active+=1;control.started.store(true,Ordering::SeqCst);
+            return Ok(DownloadPermit(gate.clone()));
+        }
+        active=ready.wait_timeout(active,std::time::Duration::from_millis(150)).map_err(|_|"下载队列无法使用。".to_string())?.0;
+    }
+}
 fn download(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
     let state=app.state::<AppState>();
-    let (auth,courses)={let runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;
-        let auth=runtime.auth.clone().ok_or("请先连接学校平台。")?;
-        let ids=data["ids"].as_array().ok_or("请选择课件。")?;
-        let courses=runtime.courses.iter().filter(|c|ids.contains(&c["id"])).cloned().collect::<Vec<_>>();(auth,courses)};
-    if courses.is_empty(){return Err("请先扫描并选择课件。".into());}
-    if data["direct"]==true {
+    let auth={state.runtime.lock().map_err(|_|"运行状态无法读取。")?.auth.clone().ok_or("请先连接学校平台。")?};
+    let ids=data["ids"].as_array().ok_or("请选择课件。")?;
+    if ids.is_empty(){return Err("请先选择课件。".into());}
+    let direct=data["direct"]==true;
+    if direct {
         let mut settings=lib.setting("settings",json!({}))?;
         if settings["exportDir"].as_str().unwrap_or("").is_empty(){
             let Some(path)=rfd::FileDialog::new().set_title("选择自动导出 PDF 的目录").pick_folder() else{return Ok(json!(false))};
-            settings["exportDir"]=json!(path.display().to_string());lib.set_setting("settings",&settings)?;sync(app,lib)?;
+            settings["exportDir"]=json!(path.display().to_string());lib.set_setting("settings",&settings)?;
         }
     }
-    let timeout=lib.setting("settings",json!({}))?["timeout"].as_u64().unwrap_or(30);
-    let client=crate::platform::client(&auth,timeout)?;
+    let settings=lib.setting("settings",json!({}))?;
+    let timeout=settings["timeout"].as_u64().unwrap_or(30);
+    let parallel=settings["maxWorkers"].as_u64().unwrap_or(2).clamp(1,MAX_COURSE_DOWNLOADS as u64) as usize;
+    let library=state.library.read().map_err(|_|"资料库状态无法读取。")?.clone();
+    let _enqueue=state.download_enqueue.lock().map_err(|_|"下载队列无法使用。")?;
+    let existing:HashSet<String>=lib.materials()?.iter().filter_map(|m|m["sourceKey"].as_str().map(str::to_owned)).collect();
+    let pending:HashSet<String>=lib.tasks()?.iter().filter(|t|matches!(t["status"].as_str(),Some("queued"|"running"|"paused")))
+        .filter_map(|t|t["sourceKey"].as_str().map(str::to_owned)).collect();
+    let courses={let runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;
+        runtime.courses.iter().filter(|c|ids.contains(&c["id"])&&!existing.contains(text(c,"id"))&&!pending.contains(text(c,"id"))).cloned().collect::<Vec<_>>()};
+    if courses.is_empty(){return Err("所选课件均已在资料库或下载队列中。".into());}
+    let mut jobs=Vec::new();
     for course in courses {
-        let source_key=required(&course,"id")?;
-        if lib.materials()?.iter().any(|m|m["sourceKey"]==source_key){continue;}
-        let task_id=uuid::Uuid::new_v4().simple().to_string();
-        let control=Arc::new(TaskControl::new());
-        {let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;runtime.controls.insert(task_id.clone(),control.clone());}
-        let mut task=json!({"id":task_id,"type":"download","title":course["title"],"status":"running","progress":0,"message":"读取课件页面","sourceKey":source_key,"course":course,"direct":data["direct"]==true,"error":""});
-        lib.put_task(&task)?;sync(app,lib)?;
-        let temp=lib.root.join("temporary").join(&task_id);
-        let result=(||{
-            let urls=crate::platform::image_urls(&client,&course)?;
-            task["message"]=json!(format!("正在下载 {} 页",urls.len()));lib.put_task(&task)?;sync(app,lib)?;
-            let paths=crate::platform::download_images(&client,&urls,&temp,|done,total|{
-                while control.paused.load(Ordering::SeqCst) && !control.cancelled.load(Ordering::SeqCst){std::thread::sleep(std::time::Duration::from_millis(150));}
-                if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
-                let percent=(done*90/total.max(1)) as u64;
-                if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("已下载 {done} / {total} 页"));lib.put_task(&task)?;sync(app,lib)?;}
-                Ok(())
-            })?;
-            let gid=required(&course,"groupId")?;
-            if !lib.courses()?.iter().any(|c|c["id"]==gid){lib.save_course(&json!({"id":gid,"title":course["title"]}))?;}
-            let mut m=lib.import_images(&paths,Some(gid))?;
-            m["title"]=course["title"].clone();m["day"]=course["day"].clone();m["sourceKey"]=course["id"].clone();m["source"] =json!("platform");
-            m["topic"]=json!("课堂课件");m["platformCourseId"]=course["course_id"].clone();m["lectureId"]=course["sub_id"].clone();
-            lib.put_material(&m)?;
-            Ok::<Value,String>(m)
-        })();
-        let _=fs::remove_dir_all(&temp);
-        match result {
-            Ok(m)=>{task["status"]=json!("done");task["progress"]=json!(100);task["message"]=json!("下载完成");task["materialId"]=m["id"].clone();lib.put_task(&task)?;sync(app,lib)?;
-                if data["direct"]==true {if let Err(error)=export(app,lib,&json!({"id":m["id"]}),true){
-                    lib.put_task(&json!({"id":uuid::Uuid::new_v4().simple().to_string(),"type":"export","title":m["title"],"status":"failed","progress":0,"message":"自动导出失败","materialId":m["id"],"error":error}))?;sync(app,lib)?;
-                }}}
-            Err(error)=>{task["status"]=json!(if error=="已取消"{"cancelled"}else{"failed"});task["error"]=json!(error);lib.put_task(&task)?;sync(app,lib)?;}
-        }
-        {let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;runtime.controls.remove(&task_id);}
+        let id=uuid::Uuid::new_v4().simple().to_string();
+        let title=format!("{} · {}",text(&course,"day"),text(&course,"title"));
+        let task=json!({"id":id,"type":"download","title":title,"status":"queued","progress":0,"message":"排队等待下载","sourceKey":course["id"],"course":course,"direct":direct,"error":""});
+        jobs.push((task,Arc::new(TaskControl::new())));
+    }
+    lib.put_tasks(&jobs.iter().map(|(task,_)|task.clone()).collect::<Vec<_>>())?;
+    {let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;
+        for (task,control) in &jobs {runtime.controls.insert(text(task,"id").to_string(),control.clone());}}
+    let _=sync(app,lib);
+    for (task,control) in jobs {
+        let app=app.clone();let library=library.clone();let auth=auth.clone();let gate=state.download_gate.clone();
+        std::thread::spawn(move||run_download(app,library,auth,task,control,gate,parallel,timeout));
     }
     Ok(json!(true))
+}
+fn check_login_cookies(app:&AppHandle,label:&str,manual:bool)->Result<bool,String>{
+    let window=app.get_webview_window(label).ok_or("登录窗口已关闭，请重新连接。")?;
+    let url=tauri::Url::parse("https://video.jw.scut.edu.cn/").map_err(|e|e.to_string())?;
+    let cookies=window.cookies_for_url(url).map_err(|e|format!("无法读取网页登录状态：{e}"))?;
+    let state=app.state::<AppState>();
+    if let Some(auth)=crate::platform::parse_cookies(&cookies){
+        let newly_connected={let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;
+            if runtime.login_window.as_deref()!=Some(label){return Ok(false);}
+            let fresh=runtime.auth.as_ref().is_none_or(|old|old.user!=auth.user||old.tenant!=auth.tenant||old.jwt!=auth.jwt);
+            runtime.auth=Some(auth);runtime.login_window=None;runtime.login_status="已连接学校平台；登录窗口已自动关闭。".into();
+            if fresh{runtime.scanned=false;runtime.courses.clear();}fresh};
+        if let Ok(library)=state.library.read(){let _=sync(app,&library);}
+        if newly_connected{let _=app.emit("notice","已连接学校平台，正在自动扫描课表。");}
+        let _=window.close();
+        return Ok(true);
+    }
+    if manual {
+        if let Ok(mut runtime)=state.runtime.lock(){runtime.login_status="尚未检测到完整登录状态；请继续在网页操作。".into();}
+        let _=window.set_title("尚未检测到完整登录状态 · 请继续登录");
+        if let Ok(library)=state.library.read(){let _=sync(app,&library);}
+    }
+    Ok(false)
+}
+fn run_download(app:AppHandle,lib:Arc<Library>,auth:crate::platform::Auth,mut task:Value,control:Arc<TaskControl>,gate:Arc<(Mutex<usize>,Condvar)>,parallel:usize,timeout:u64){
+    let id=text(&task,"id").to_string();
+    let course=task["course"].clone();
+    let result=(||{
+        let _permit=acquire_download_slot(&gate,parallel,&control)?;
+        task["status"]=json!("running");task["message"]=json!("正在读取课件页面");lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
+        let client=crate::platform::client(&auth,timeout)?;
+        let urls=crate::platform::image_urls(&client,&course)?;
+        task["message"]=json!(format!("准备下载 {} 页",urls.len()));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
+        let temp=lib.root.join("temporary").join(&id);
+        let result=(||{
+            let paths=crate::platform::download_images(&client,&urls,&temp,|done,total|{
+                while control.paused.load(Ordering::SeqCst)&&!control.cancelled.load(Ordering::SeqCst){std::thread::sleep(std::time::Duration::from_millis(150));}
+                if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
+                let percent=(done*85/total.max(1)) as u64;
+                if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("已下载 {done} / {total} 页"));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());}
+                Ok(())
+            })?;
+            if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
+            task["progress"]=json!(85);task["message"]=json!("正在整理已下载页面");lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
+            let gid=required(&course,"groupId")?;
+            if !lib.courses()?.iter().any(|c|c["id"]==gid){lib.save_course(&json!({"id":gid,"title":course["title"]}))?;}
+            let mut material=lib.import_images_with_progress(&paths,Some(gid),|done,total|{
+                if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
+                let percent=85+(done*14/total.max(1)) as u64;
+                if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("正在整理 {done} / {total} 页"));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());}
+                Ok(())
+            })?;
+            material["title"]=course["title"].clone();material["day"]=course["day"].clone();material["sourceKey"]=course["id"].clone();material["source"]=json!("platform");
+            material["topic"]=json!("课堂课件");material["platformCourseId"]=course["course_id"].clone();material["lectureId"]=course["sub_id"].clone();
+            lib.put_material(&material)?;
+            Ok::<Value,String>(material)
+        })();
+        let _=fs::remove_dir_all(&temp);
+        let material=result?;
+        if task["direct"]==true {
+            task["progress"]=json!(99);task["message"]=json!("正在自动导出 PDF");lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
+            if let Err(error)=export(&app,&lib,&json!({"id":material["id"]}),true){
+                let _=lib.put_task(&json!({"id":uuid::Uuid::new_v4().simple().to_string(),"type":"export","title":material["title"],"status":"failed","progress":0,"message":"自动导出失败","materialId":material["id"],"error":error}));
+            }
+        }
+        Ok::<Value,String>(material)
+    })();
+    match result {
+        Ok(material)=>{task["status"]=json!("done");task["progress"]=json!(100);task["message"]=json!("下载完成");task["materialId"]=material["id"].clone();}
+        Err(error)=>{task["status"]=json!(if error=="已取消"{"cancelled"}else{"failed"});task["error"]=json!(error);task["message"]=json!("下载未完成");}
+    }
+    let _=lib.put_task(&task);
+    if let Ok(mut runtime)=app.state::<AppState>().runtime.lock(){runtime.controls.remove(&id);}
+    let _=sync(&app,&lib);
 }
 fn task_action(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
     let task_id=required(data,"id")?;
@@ -218,8 +376,8 @@ fn task_action(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
     let state=app.state::<AppState>();
     let control={state.runtime.lock().map_err(|_|"运行状态无法读取。")?.controls.get(task_id).cloned()};
     match text(data,"action") {
-        "toggle" => {let control=control.ok_or("此任务已结束。")?;let paused=!control.paused.load(Ordering::SeqCst);control.paused.store(paused,Ordering::SeqCst);task["status"]=json!(if paused{"paused"}else{"running"});lib.put_task(&task)?;sync(app,lib)?;Ok(json!(true))}
-        "cancel" => {let control=control.ok_or("此任务已结束。")?;control.cancelled.store(true,Ordering::SeqCst);control.paused.store(false,Ordering::SeqCst);task["message"]=json!("正在取消，等待当前页面请求完成…");lib.put_task(&task)?;sync(app,lib)?;Ok(json!(true))}
+        "toggle" => {let control=control.ok_or("此任务已结束。")?;let paused=!control.paused.load(Ordering::SeqCst);control.paused.store(paused,Ordering::SeqCst);task["status"]=json!(if paused{"paused"}else if control.started.load(Ordering::SeqCst){"running"}else{"queued"});lib.put_task(&task)?;sync(app,lib)?;Ok(json!(true))}
+        "cancel" => {let control=control.ok_or("此任务已结束。")?;control.cancelled.store(true,Ordering::SeqCst);control.paused.store(false,Ordering::SeqCst);task["message"]=json!(if control.started.load(Ordering::SeqCst){"正在取消，等待当前页面请求完成…"}else{"正在从队列移除…"});lib.put_task(&task)?;sync(app,lib)?;Ok(json!(true))}
         "retry" => {
             if task["status"]!="failed"&&task["status"]!="cancelled" {return Err("仅可重试失败或取消的任务。".into());}
             match text(&task,"type") {
@@ -328,6 +486,8 @@ fn update_import_progress(app:&AppHandle,lib:&Library,task:&mut Value,control:&T
     Ok(())
 }
 fn export(app:&AppHandle,lib:&Library,data:&Value,quick:bool)->Result<Value,String>{
+    let state=app.state::<AppState>();
+    let _export=state.export_lock.lock().map_err(|_|"导出队列无法使用。")?;
     let mid=required(data,"id")?;let m=lib.get_material(mid)?;if m["deleted"]==true{return Err("请先恢复课件。".into());}
     let mut settings=lib.setting("settings",json!({}))?;
     let root=if let Some(configured)=settings["exportDir"].as_str().filter(|s|!s.is_empty()){PathBuf::from(configured)}else{
@@ -351,6 +511,8 @@ fn batch_export(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
     let ids=data["ids"].as_array().ok_or("课件列表无效。")?;
     if ids.is_empty(){return Err("请先选择课件。".into());}
     if text(data,"mode")=="combined" {
+        let state=app.state::<AppState>();
+        let _export=state.export_lock.lock().map_err(|_|"导出队列无法使用。")?;
         let mut materials=Vec::new();for mid in ids {materials.push(lib.get_material(mid.as_str().ok_or("课件编号无效。")?)?);}
         materials.sort_by(|a,b|text(a,"day").cmp(text(b,"day")));
         let mut settings=lib.setting("settings",json!({}))?;
@@ -367,6 +529,6 @@ fn batch_export(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
         lib.put_task(&json!({"id":uuid::Uuid::new_v4().simple().to_string(),"type":"batch","title":format!("{} · 合并 {} 份课件",title,materials.len()),"status":"done","progress":100,"message":"导出完成","materialId":materials[0]["id"],"error":""}))?;
         sync(app,lib)?;return Ok(json!(true));
     }
-    for id in ids {export(app,lib,&json!({"id":id}),true)?;}
+    for id in ids {if export(app,lib,&json!({"id":id}),true)?==false{return Ok(json!(false));}}
     Ok(json!(true))
 }
