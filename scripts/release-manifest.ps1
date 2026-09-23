@@ -17,9 +17,10 @@ $installer = Get-Item -LiteralPath $assetPath
 $signature = (Get-Content -Raw -Encoding UTF8 -LiteralPath $signaturePath).Trim()
 if (-not $signature) { throw 'The installer signature is empty.' }
 $url = "https://github.com/goooseby/keye-desktop/releases/download/v$version/$assetName"
+$releaseNotes = -join ([char[]](0x754C,0x9762,0x7EC6,0x8282,0x4E0E,0x5F00,0x53D1,0x4F53,0x9A8C,0x8C03,0x6574,0x3002))
 $manifest = @{
     version = $version
-    notes = 'See the GitHub release notes.'
+    notes = $releaseNotes
     size = $installer.Length
     platforms = @{ 'windows-x86_64' = @{ signature = $signature; url = $url } }
 } | ConvertTo-Json -Depth 6

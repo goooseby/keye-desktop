@@ -19,6 +19,6 @@
 3. 验证打包后的 PDFium 读取、WebView2 可用性、首次安装、关闭重开、默认及自选安装路径、Windows 设置中的卸载入口、应用内卸载入口、保留及删除默认数据、重装后找回数据。
 4. 在实际 GitHub Release 上验证 `latest.json`、安装包和 `.sig` 的命名及 URL，并在两个版本之间验证检查、下载、签名、安装和失败处理。发布 Release 前不要将“关于”页的更新显示当作端到端验收。
 
-默认 `bundle.active` 保持 `false`；只有 `scripts/package.ps1` 使用的专用配置将它设为 `true`。`0.1.0` 安装包位于 `.build/cargo/release/bundle/nsis/`，实测体积 7.61 MiB；签名和 `latest.json` 同时生成。尚未完成安装、卸载及跨版本更新的人工验收。发布时须将安装包、同名 `.sig` 和 `latest.json` 一起作为同一版本 GitHub Release 的附件，版本标签为 `v<版本号>`。
+默认 `bundle.active` 保持 `false`；只有 `scripts/package.ps1` 使用的专用配置将它设为 `true`。安装包位于 `.build/cargo/release/bundle/nsis/`，签名和 `latest.json` 同时生成。首次安装和基本运行已经过人工验证，卸载选项及跨版本应用内更新仍需继续验收。发布时须将安装包、同名 `.sig` 和 `latest.json` 一起作为同一版本 GitHub Release 的附件，版本标签为 `v<版本号>`。
 
 参考：[Tauri Windows 安装包](https://v2.tauri.app/distribute/windows-installer/)、[Tauri NSIS 配置](https://v2.tauri.app/reference/config/#nsisinstallermode)、[Microsoft 的应用数据目录建议](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/user-account-control-for-game-developers)。

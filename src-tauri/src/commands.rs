@@ -101,6 +101,8 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
         "openExport" => {let m=lib.get_material(required(data,"id")?)?;let path=PathBuf::from(text(&m,"exportPath"));if !path.is_file(){return Err("导出文件不存在。".into());}open_dir(path.parent().ok_or("导出路径无效。")?)?;Ok(json!(true))}
         "task" => task_action(app,lib,data),
         "openRelease" => {std::process::Command::new("explorer").arg("https://github.com/goooseby/keye-desktop/releases").spawn().map_err(|e|e.to_string())?;Ok(json!(true))}
+        "openAuthor" => {std::process::Command::new("explorer").arg("https://github.com/goooseby").spawn().map_err(|e|e.to_string())?;Ok(json!(true))}
+        "openRepository" => {std::process::Command::new("explorer").arg("https://github.com/goooseby/keye-desktop").spawn().map_err(|e|e.to_string())?;Ok(json!(true))}
         "uninstall" => {
             if cfg!(debug_assertions) {return Err("开发版没有卸载程序。".into());}
             let exe=std::env::current_exe().map_err(|e|e.to_string())?;

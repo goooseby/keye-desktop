@@ -2,13 +2,33 @@
 
 <h1 align="center">课页 · Keye</h1>
 
-<p align="center">获取课件、筛选页面、导出 PDF，把课堂资料收进自己的资料库。</p>
+<p align="center"><strong>华南理工大学课堂 PPT 下载器</strong></p>
+
+<p align="center">按课表扫描课堂课件，集中下载、逐页筛选并导出 PDF。</p>
+
+<p align="center">
+  <a href="https://github.com/goooseby/keye-desktop/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/goooseby/keye-desktop?style=flat-square&label=%E7%89%88%E6%9C%AC"></a>
+  <a href="https://github.com/goooseby/keye-desktop/releases"><img alt="累计下载" src="https://img.shields.io/github/downloads/goooseby/keye-desktop/total?style=flat-square&label=%E4%B8%8B%E8%BD%BD"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1676D2?style=flat-square&logo=windows11&logoColor=white">
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-core-000000?style=flat-square&logo=rust&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-frontend-3178C6?style=flat-square&logo=typescript&logoColor=white">
+</p>
 
 <p align="center"><a href="https://github.com/goooseby/keye-desktop/releases/latest"><strong>下载 Windows 安装包</strong></a>　·　<a href="docs/DEVELOPMENT.md">从源码运行</a>　·　<a href="docs/DISTRIBUTION.md">安装与数据说明</a></p>
 
 ---
 
-课页是一款面向 Windows 的个人课件整理工具。它可以按课程和课次收纳从华南理工大学课堂平台获取的课件，也支持导入本地图片与 PDF。逐页预览后，排除无关页面，再导出需要的内容；原始资料始终保留，之后还能继续调整。
+课页是一款面向华南理工大学的 Windows 课堂 PPT 下载与整理工具。选择日期范围后，程序会自动读取课表并按课程、课次列出课堂平台中的课件；凡是在教室内按课表授课、且平台已经生成的课堂 PPT，都可以集中下载，无需逐门课程手工查找。
+
+下载后的课件会自动归入本地课程资料库。你可以直接导出 PDF，也可以逐页预览并排除自动采集过程中产生的无关画面；原始页面始终保留，之后还能继续调整。程序也支持导入已有图片和 PDF。
+
+## 核心特点
+
+- **按课表自动获取**：登录学校课堂平台后，选择日期范围即可扫描对应课程；修改日期会自动重新扫描，也可以手动强制刷新。
+- **按课程和课次收纳**：同一门课程的多次课堂课件集中管理，避免下载后散落成大量无序文件。
+- **下载后即可导出**：整理不是前置条件，可以快速生成 PDF，也可以先筛除无关页面再导出。
+- **资料保存在本机**：原始页面、整理记录和导出设置均由本地资料库保存。
 
 ## 界面预览
 
@@ -28,7 +48,7 @@
 
 ## 可以做什么
 
-- **获取课程资料**：在独立窗口登录学校平台，选择日期范围后自动扫描课表；下载任务按课件分别显示。
+- **获取课程资料**：在独立窗口登录学校平台，选择日期范围后自动扫描华南理工大学课表；下载任务按课件分别显示。
 - **导入已有文件**：导入图片、PDF 或课件目录，按课程和课次整理。
 - **筛选页面**：浏览缩略图与大图，使用 `E` 排除或恢复当前页、方向键翻页、`Shift` 连选，并可撤销操作。
 - **灵活导出**：无需先标记“已整理”，就能快速导出单份或多份课件；首次导出时选择保存目录。

@@ -25,6 +25,8 @@ npm ci
 
 开发启动会先构建前端，再用本地静态服务打开窗口，避免窗口显示后临时编译前端造成长时间的“正在打开资料库”。修改前端代码后需重启开发程序才能看到变化。首次或 Rust 依赖变更后的编译仍可能较久，但发生在窗口出现之前。开发配置单独优化了图片处理依赖，便于测试大量页面的导入。
 
+Rust 开发构建使用 `debug = 1`（有限调试信息），以减少完整调试符号的磁盘占用；Windows MSVC 默认将调试信息放在独立的 PDB 文件中，不设置该平台不支持的 `split-debuginfo = "unpacked"`。首次切换编译配置时 Cargo 可能重编部分依赖，之后继续复用新配置的缓存。既有 `.build/cargo/debug/` 产物不会自动删除；只清理 PDB 也可能让 Cargo 重新生成相应产物，不能保证完全没有编译开销。
+
 Tauri 的 `useLocalToolsDir` 已启用。日常开发默认不构建安装包；测试安装包由 `scripts/package.ps1` 显式生成。
 
 仓库只保留 Windows 打包所需的 `icon.ico` 和源 SVG。Tauri 图标命令生成的 Android、iOS 等变体留在本地但不入库，需要扩展平台时可用 `npx tauri icon public/app-icon.svg` 重新生成。
