@@ -17,7 +17,9 @@ $installer = Get-Item -LiteralPath $assetPath
 $signature = (Get-Content -Raw -Encoding UTF8 -LiteralPath $signaturePath).Trim()
 if (-not $signature) { throw 'The installer signature is empty.' }
 $url = "https://github.com/goooseby/keye-desktop/releases/download/v$version/$assetName"
-$releaseNotes = -join ([char[]](0x754C,0x9762,0x7EC6,0x8282,0x4E0E,0x5F00,0x53D1,0x4F53,0x9A8C,0x8C03,0x6574,0x3002))
+$notesFile = Join-Path $script:KeyeProjectRoot "docs\releases\v$version.md"
+if (-not (Test-Path -LiteralPath $notesFile)) { throw "Release notes for version $version are missing: $notesFile" }
+$releaseNotes = (Get-Content -Raw -Encoding UTF8 -LiteralPath $notesFile).Trim()
 $manifest = @{
     version = $version
     notes = $releaseNotes
