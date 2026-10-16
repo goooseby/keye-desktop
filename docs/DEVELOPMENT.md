@@ -38,3 +38,18 @@ Tauri 的 `useLocalToolsDir` 已启用。日常开发默认不构建安装包；
 开发阶段的测试资料**就在本项目** `.build/dev-data/`，重新编译不会清除。若只想清理缓存，关闭程序后可以删除 `.build/cargo/`、`dist/`、`node_modules/`；保留 `.build/dev-data/`。项目专用 Rust 位于 `.toolchain/`。Visual Studio Build Tools 请通过 Windows“已安装的应用”或 Visual Studio Installer 卸载，不手动删系统文件。
 
 官方安装说明：[Tauri Windows 前置条件](https://v2.tauri.app/start/prerequisites/)、[Rustup](https://rustup.rs/)、[WebView2 分发](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。
+
+## 界面回归脚本
+
+`scripts/dev/` 下的脚本通过 WebView2 调试端口驱动正在运行的开发版，检查容易回归的界面行为，输出 JSON 断言：
+
+```powershell
+.\scripts\inspect.ps1                  # 带调试端口（9222）启动开发版
+node scripts\dev\check-pages.mjs       # 逐页冒烟：资料库三个状态、课程页、整理页、浮层、导出与帮助
+node scripts\dev\check-navigation.mjs  # 翻页范围与浮层置灰
+node scripts\dev\check-crop.mjs        # 裁剪落库、呈现同步、还原、撤销、批量应用
+node scripts\dev\check-crop-ui.mjs     # 裁剪模式纯度与勾选不丢
+node scripts\dev\check-crop-flicker.mjs# 勾选时已裁剪缩略图不闪回原图
+```
+
+脚本只读取界面状态，不改资料库；`check-crop` 不执行真实导出（导出尺寸由 `cargo test` 的 PDF 测试断言）。界面模块划分与改动约定见 [ARCHITECTURE.md](ARCHITECTURE.md#界面结构)。
