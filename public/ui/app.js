@@ -27,6 +27,8 @@ const main=document.querySelector('#main'),modal=document.querySelector('#modal'
 const $=selector=>document.querySelector(selector);
 const material=()=>state.materials.find(m=>m.id===view.materialId);
 const activeMaterials=()=>state.materials.filter(m=>!m.deleted);
+const pageList=()=>{const m=material();if(!m)return[];const all=Array.from({length:m.pages},(_,i)=>i+1);return view.pageFilter==='kept'?all.filter(p=>!m.excluded.includes(p)):all;};
+const stepTarget=step=>{const pages=pageList();if(!pages.length)return null;if(step<0){for(let i=pages.length-1;i>=0;i--)if(pages[i]<view.currentPage)return pages[i];return null;}for(const p of pages)if(p>view.currentPage)return p;return null;};
 const statusOf=m=>m.exported?(m.revision===m.exportRevision?'exported':'changed'):m.edited?'editing':'pending';
 const statuses={pending:'待整理',editing:'整理中',exported:'已导出',changed:'修改后未导出'};
 const badge=m=>`<span class="badge ${m.reviewRevision===m.revision?'exported':m.edited?'editing':'pending'}">${m.reviewRevision===m.revision?'已整理':m.edited?'整理中':'待整理'}</span>`;
@@ -182,7 +184,7 @@ function updateEditorPreview(){
   }else if(media&&image){++editorImageRequest;stage.removeAttribute('aria-busy');}
   else stage.innerHTML=slide(m,view.currentPage);
   const controls=panel.querySelector('.preview-controls'),buttons=controls.querySelectorAll('button');
-  buttons[0].disabled=view.currentPage===1;controls.querySelector('span').textContent=`第 ${view.currentPage} 页`;buttons[1].disabled=view.currentPage===m.pages;
+  buttons[0].disabled=stepTarget(-1)===null;controls.querySelector('span').textContent=`第 ${view.currentPage} 页`;buttons[1].disabled=stepTarget(1)===null;
   const excluded=m.excluded.includes(view.currentPage),detail=panel.querySelector('.preview-detail'),toggle=detail.querySelector('button');
   detail.querySelector('h3').textContent=excluded?'此页已排除':'此页将保留在 PDF 中';
   detail.querySelector('p').textContent=excluded?'原始页面依然保留。恢复后，这一页将重新进入导出结果。':'单击缩略图查看大图；勾选多页，可以批量排除无关画面。';
@@ -195,6 +197,7 @@ function preview(page){
   lastPageTimer=setTimeout(()=>{const latest=pendingLastPage;pendingLastPage=null;if(latest)call('lastPage',latest).catch(fail);},240);
   if(modal.open&&modal.classList.contains('fullscreen-modal'))scheduleFullscreen();else updateEditorPreview();
 }
+function stepPage(step){const target=stepTarget(step);if(target!==null)preview(target);}
 function scheduleFullscreen(){
   if(fullscreenFrame!==null)return;
   fullscreenFrame=requestAnimationFrame(()=>{fullscreenFrame=null;if(modal.open&&modal.classList.contains('fullscreen-modal'))showFullscreen();});
@@ -213,12 +216,12 @@ function showFullscreen(){
     }else if(media&&image){++fullscreenImageRequest;stage.removeAttribute('aria-busy');}
     else stage.innerHTML=slide(m,view.currentPage);
     $('#fullscreen-page').textContent=`${view.currentPage} / ${m.pages}`;
-    $('[data-action="previous"]').disabled=view.currentPage===1;
-    $('[data-action="next"]').disabled=view.currentPage===m.pages;
+    $('#modal-content [data-action="previous"]').disabled=stepTarget(-1)===null;
+    $('#modal-content [data-action="next"]').disabled=stepTarget(1)===null;
     $('[data-action="toggle-fullscreen-page"]').textContent=excluded?'恢复此页':'排除此页';
   }else{
     modal.classList.add('fullscreen-modal');
-    $('#modal-content').innerHTML=`<div class="modal-header"><h2 id="fullscreen-title">${esc(m.title)} · 第 ${view.currentPage} 页</h2><div class="fullscreen-shortcuts"><span><kbd>←</kbd> <kbd>→</kbd> 翻页</span><span><kbd>E</kbd> 排除 / 恢复</span></div><button class="icon-button" data-action="close-modal" aria-label="关闭">${icon('close')}</button></div><div class="modal-body"><div id="fullscreen-stage">${slide(m,view.currentPage)}</div><div class="full-nav"><button data-action="previous" ${view.currentPage===1?'disabled':''}>${icon('left')}上一页</button><span id="fullscreen-page">${view.currentPage} / ${m.pages}</span><button data-action="next" ${view.currentPage===m.pages?'disabled':''}>下一页${icon('right')}</button><button data-action="toggle-fullscreen-page">${excluded?'恢复此页':'排除此页'}</button></div></div>`;
+    $('#modal-content').innerHTML=`<div class="modal-header"><h2 id="fullscreen-title">${esc(m.title)} · 第 ${view.currentPage} 页</h2><div class="fullscreen-shortcuts"><span><kbd>←</kbd> <kbd>→</kbd> 翻页${view.pageFilter==='kept'?'（跳过已排除页）':''}</span><span><kbd>E</kbd> 排除 / 恢复</span></div><button class="icon-button" data-action="close-modal" aria-label="关闭">${icon('close')}</button></div><div class="modal-body"><div id="fullscreen-stage">${slide(m,view.currentPage)}</div><div class="full-nav"><button data-action="previous" ${stepTarget(-1)===null?'disabled':''}>${icon('left')}上一页</button><span id="fullscreen-page">${view.currentPage} / ${m.pages}</span><button data-action="next" ${stepTarget(1)===null?'disabled':''}>下一页${icon('right')}</button><button data-action="toggle-fullscreen-page">${excluded?'恢复此页':'排除此页'}</button></div></div>`;
     modal.showModal();
   }
   fullscreenPreloads=[view.currentPage-1,view.currentPage+1].map(page=>m.media?.[page-1]?.src).filter(Boolean).map(src=>{const image=new Image();image.src=src;return image;});
@@ -285,8 +288,8 @@ async function handleClick(event){
   if(action==='exclude')return mutatePages([...view.selected],true);
   if(action==='restore')return mutatePages([...view.selected],false);
   if(action==='undo')return undo();
-  if(action==='previous')return preview(view.currentPage-1);
-  if(action==='next')return preview(view.currentPage+1);
+  if(action==='previous')return stepPage(-1);
+  if(action==='next')return stepPage(1);
   if(action==='fullscreen')return showFullscreen();
   if(action==='toggle-fullscreen-page'){await mutatePages([view.currentPage],!material().excluded.includes(view.currentPage));return;}
   if(action==='export')return showExport();
@@ -347,7 +350,7 @@ document.addEventListener('keydown',event=>{
   if(view.page!=='editor'||['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName))return;
   if(event.key==='Enter'&&event.target.matches('[data-preview]')){view.currentPage=Number(event.target.dataset.preview);showFullscreen();return;}
   if(modal.open&&!modal.classList.contains('fullscreen-modal'))return;
-  if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();preview(view.currentPage+(event.key==='ArrowLeft'?-1:1));}
+  if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();stepPage(event.key==='ArrowLeft'?-1:1);}
   if(event.key.toLowerCase()==='e'&&!event.ctrlKey&&!event.metaKey){mutatePages([view.currentPage],!material().excluded.includes(view.currentPage)).catch(fail);}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();undo().then(()=>{if(modal.open)scheduleFullscreen();}).catch(fail);}
 });
