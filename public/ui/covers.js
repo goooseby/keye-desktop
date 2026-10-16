@@ -32,3 +32,9 @@ function generatedCover(data){
   const meta=[data.day||data.term||'课程资料',data.pages?`${data.pages} 页`:null].filter(Boolean).join('　·　');
   return `<svg class="slide" viewBox="0 0 640 360" role="img" aria-label="${esc(data.title||'课程')} 自动生成封面" xmlns="http://www.w3.org/2000/svg" style="font-family:'Microsoft YaHei','Segoe UI',sans-serif"><rect width="640" height="360" fill="${palette.bg}"/><rect width="640" height="6" fill="${palette.ink}" opacity=".78"/><text x="46" y="51" font-size="11" fill="${palette.ink}" letter-spacing="2">课页 / PERSONAL COURSE LIBRARY</text><text x="46" y="137" font-size="32" font-weight="650" fill="${palette.ink}">${esc(line1)}</text><text x="46" y="184" font-size="32" font-weight="650" fill="${palette.ink}">${esc(line2)}</text><rect x="46" y="217" width="40" height="3" fill="${palette.ink}" opacity=".55"/><text x="46" y="261" font-size="14" fill="${palette.ink}">${esc(meta)}</text>${COVER_TEMPLATES[templateId](palette)}<path d="M45 323h550" stroke="${palette.ink}" opacity=".15"/><text x="46" y="343" font-size="10" fill="${palette.ink}" opacity=".65">自动生成封面 · ${esc(templateId)} / ${esc(paletteId)}</text></svg>`;
 }
+function cover(m){
+  const course=(state.courseLibrary||[]).find(c=>c.id===m.courseId);
+  return generatedCover({...m,title:course?.title||m.title,term:course?.term||m.term,
+    coverKey:course?.id||m.coverKey||m.courseId||m.id,coverStyle:course?.coverStyle||m.coverStyle,
+    coverPalette:course?.coverPalette||m.coverPalette});
+}

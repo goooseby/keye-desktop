@@ -119,25 +119,8 @@ h3{font-size:15px;font-weight:650}
 .tabs button{font-size:13px;color:#64736e;padding:12px 0 15px;min-height:42px}
 .tabs button.active{color:#142821;font-weight:700}
 .tabs button.active:after{height:3px}
-.tabs .count{font-size:11px;color:#53655d;background:#e3e9e6}
 .search-box{min-width:230px;padding:10px 12px;border-color:#cfd9d4;border-radius:8px;color:#667770}
 .search-box input{font-size:13px;width:170px}
-.library-tools{font-size:12px;color:#5e6f68;margin-bottom:19px}
-.library-tools select{font-size:12px;color:#52635d}
-
-.continue-card{border-color:#c8ddd2;background:linear-gradient(105deg,#e5f1eb,#f8faf8);padding:25px 27px;box-shadow:0 6px 18px rgba(28,73,58,.06)}
-.continue-copy .overline{font-size:11px;color:#3f715f;font-weight:650}
-.continue-copy h2{font-size:19px}
-.continue-copy p{font-size:12px;color:#596a64}
-.continue-copy .tiny-progress{font-size:11px;color:#4e695e}
-
-.course-grid{gap:21px}
-.course-card{border-color:#d1dcd7;border-radius:12px;box-shadow:var(--shadow)}
-.course-card:hover{border-color:#91b4a5;box-shadow:0 10px 28px rgba(23,72,55,.11)}
-.course-info{padding:19px 20px 18px}
-.course-info h3{font-size:15px;line-height:1.5;color:#172722}
-.course-info .meta{font-size:12px;color:#5d6e67;margin-bottom:17px}
-.course-info-bottom{font-size:11px;color:#65756f}
 .badge{font-size:11px;font-weight:600;padding:5px 8px;border-radius:5px}
 .badge.pending{background:#f7edd8;color:#765516}
 .badge.editing{background:#e8edf8;color:#4c6292}
@@ -300,8 +283,7 @@ img.slide[data-crop]{backface-visibility:hidden}
 img.slide[data-crop]:not([data-crop-ready="1"]){visibility:hidden}
 
 /* Keep Chromium's compositor graph simple on Windows and virtual displays. */
-.course-card,.page-tile,button,#toast{transition:none}
-.course-card:hover{transform:none}
+.page-tile,button,#toast{transition:none}
 .page-tile.excluded .slide{filter:none}
 .pages-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 
@@ -329,7 +311,6 @@ img.slide[data-crop]:not([data-crop-ready="1"]){visibility:hidden}
   .sidebar{width:176px}
   .brand{font-size:19px}
   .nav-item{font-size:13px}
-  .course-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:700px){
   main{padding:24px 18px}
