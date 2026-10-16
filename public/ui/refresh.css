@@ -266,6 +266,39 @@ dialog::backdrop{background:rgba(18,36,30,.42);backdrop-filter:none}
 .fullscreen-shortcuts span{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .fullscreen-shortcuts kbd{font-size:11px;font-weight:650;color:#31584a;border-color:#bfcfc7;background:#f7faf8}
 
+/* 裁剪：非破坏性裁切状态在各处的呈现 */
+.crop-flag{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#3f6b55;background:#eaf3ec;border-radius:5px;padding:2px 6px;white-space:nowrap}
+.crop-flag svg.icon{width:12px;height:12px}
+td .crop-flag{margin-left:6px;font-weight:500;color:#5b6f66;background:#f0f4f1}
+.preview-detail-actions{display:flex;flex-wrap:wrap;gap:8px}
+.preview-detail-actions button{font-size:12px}
+
+#fullscreen-stage{position:relative;overflow:hidden}
+.large-art{overflow:hidden}
+.full-nav{display:flex;align-items:center;gap:10px}
+.full-nav .nav-crop{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;color:#52655d}
+.full-nav .nav-crop button{font-size:12px;min-height:32px}
+.full-nav .nav-pager{display:flex;align-items:center;gap:13px;margin:0 auto}
+/* 裁剪模式：整行只服务裁剪，翻页与排除不再渲染 */
+.full-nav.cropping .nav-crop{flex:1}
+.full-nav.cropping .crop-readout{margin-left:auto}
+.crop-readout{font-size:11px;color:#61726b;white-space:nowrap;margin-left:2px}
+
+.crop-layer{position:absolute;overflow:hidden;cursor:crosshair;touch-action:none;z-index:2}
+.crop-box{position:absolute;outline:1px solid rgba(255,255,255,.92);box-shadow:0 0 0 9999px rgba(14,31,25,.5);cursor:move}
+.crop-handle{position:absolute;width:12px;height:12px;border-radius:3px;background:#fff;border:1px solid #176e58;box-shadow:0 1px 3px rgba(16,40,32,.28)}
+.crop-handle[data-handle="nw"]{left:0;top:0;cursor:nwse-resize}
+.crop-handle[data-handle="n"]{left:50%;top:0;transform:translateX(-50%);cursor:ns-resize}
+.crop-handle[data-handle="ne"]{right:0;top:0;cursor:nesw-resize}
+.crop-handle[data-handle="e"]{right:0;top:50%;transform:translateY(-50%);cursor:ew-resize}
+.crop-handle[data-handle="se"]{right:0;bottom:0;cursor:nwse-resize}
+.crop-handle[data-handle="s"]{left:50%;bottom:0;transform:translateX(-50%);cursor:ns-resize}
+.crop-handle[data-handle="sw"]{left:0;bottom:0;cursor:nesw-resize}
+.crop-handle[data-handle="w"]{left:0;top:50%;transform:translateY(-50%);cursor:ew-resize}
+img.slide[data-crop]{backface-visibility:hidden}
+/* 裁剪样式补齐之前先隐藏，避免闪出未裁剪的原始画面 */
+img.slide[data-crop]:not([data-crop-ready="1"]){visibility:hidden}
+
 /* Keep Chromium's compositor graph simple on Windows and virtual displays. */
 .course-card,.page-tile,button,#toast{transition:none}
 .course-card:hover{transform:none}
@@ -288,6 +321,9 @@ dialog::backdrop{background:rgba(18,36,30,.42);backdrop-filter:none}
   .preview-panel{display:none}
   .page-heading{align-items:flex-start}
   .page-heading>.actions{flex-wrap:wrap;justify-content:flex-end}
+  .full-nav{gap:6px}
+  .full-nav .nav-crop button,.full-nav .nav-exclude{font-size:11px;padding:7px 9px}
+  .full-nav .crop-readout{display:none}
 }
 @media(max-width:950px){
   .sidebar{width:176px}

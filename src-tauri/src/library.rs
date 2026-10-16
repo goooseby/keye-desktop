@@ -13,6 +13,35 @@ pub struct Library {
 fn err(e: impl std::fmt::Display) -> String { e.to_string() }
 fn now() -> u128 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() }
 fn id() -> String { Uuid::new_v4().simple().to_string() }
+fn round6(v: f64) -> f64 { (v*1e6).round()/1e6 }
+// 前端把 x 与 w（y 与 h）分别规整到 6 位小数，贴边裁剪时两者之和最多比 1 大 1e-6；这里只容忍这一点点偏差。
+const CROP_ROUND_FUZZ: f64 = 1.5e-6;
+
+// 校验裁剪矩形并规整到 6 位小数；null 或缺失表示没有裁剪，按空对象处理。
+fn parse_crops(value: &Value, pages: u64) -> Result<Value, String> {
+    if value.is_null() { return Ok(json!({})); }
+    let mut items: Vec<(u64,[f64;4])> = Vec::new();
+    for (key, rect) in value.as_object().ok_or("裁剪范围无效。")? {
+        let page: u64 = key.parse().map_err(|_| "裁剪页码无效。".to_string())?;
+        if page<1 || page>pages { return Err("裁剪页码无效。".into()); }
+        let values = rect.as_array().filter(|v|v.len()==4).ok_or("裁剪范围无效。")?;
+        let mut numbers=[0f64;4];
+        for (index,item) in values.iter().enumerate() {
+            numbers[index]=round6(item.as_f64().filter(|v|v.is_finite()).ok_or("裁剪范围无效。")?);
+        }
+        let [x,y,mut w,mut h]=numbers;
+        if x<0.0 || y<0.0 { return Err("裁剪范围无效。".into()); }
+        // 前端把 x 与 w 分别规整到 6 位小数，贴边裁剪时两者之和最多比 1 大 1e-6，按同一量级收紧而不是报错。
+        if x+w>1.0 { if x+w>1.0+CROP_ROUND_FUZZ { return Err("裁剪范围无效。".into()); } w=round6(1.0-x); }
+        if y+h>1.0 { if y+h>1.0+CROP_ROUND_FUZZ { return Err("裁剪范围无效。".into()); } h=round6(1.0-y); }
+        if w<0.02 || h<0.02 { return Err("裁剪范围无效。".into()); }
+        items.push((page,[x,y,w,h]));
+    }
+    items.sort_by_key(|(page,_)|*page);
+    let mut crops = serde_json::Map::new();
+    for (page,rect) in items { crops.insert(page.to_string(),json!(rect)); }
+    Ok(Value::Object(crops))
+}
 
 impl Library {
     pub fn open(root: PathBuf) -> Result<Self, String> {
@@ -96,7 +125,7 @@ impl Library {
         self.db()?.execute("INSERT OR REPLACE INTO courses(id,data) VALUES(?1,?2)", params![cid,c.to_string()]).map_err(err)?;
         Ok(c)
     }
-    pub fn selection(&self, mid: &str, excluded: &Value, revision: &Value) -> Result<(), String> {
+    pub fn page_state(&self, mid: &str, excluded: &Value, crops: &Value, revision: &Value) -> Result<(), String> {
         let mut db=self.db()?;
         let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
         let raw:String=tx.query_row("SELECT data FROM materials WHERE id=?1",[mid],|r|r.get(0)).map_err(|_|"未找到这份课件。".to_string())?;
@@ -105,8 +134,10 @@ impl Library {
         let pages = m["pages"].as_u64().unwrap_or(0);
         let mut selected: Vec<u64> = excluded.as_array().ok_or("页面范围无效。")?.iter().map(|v|v.as_u64().filter(|n|*n>=1 && *n<=pages).ok_or("页面范围无效。".to_string())).collect::<Result<_,_>>()?;
         selected.sort_unstable(); selected.dedup();
-        if m["excluded"] != json!(selected) {
-            m["excluded"] = json!(selected); m["edited"] = json!(true); m["revision"] = json!(revision.as_u64().unwrap_or(0)+1); m["touched"] = json!(now());
+        let crops = parse_crops(crops,pages)?;
+        let current = if m["crops"].is_object() {m["crops"].clone()} else {json!({})};
+        if m["excluded"] != json!(selected) || current != crops {
+            m["excluded"] = json!(selected); m["crops"] = crops; m["edited"] = json!(true); m["revision"] = json!(revision.as_u64().unwrap_or(0)+1); m["touched"] = json!(now());
             tx.execute("UPDATE materials SET data=?1 WHERE id=?2",params![m.to_string(),mid]).map_err(err)?;
         }
         tx.commit().map_err(err)?;
@@ -137,7 +168,7 @@ impl Library {
             let title = files[0].parent().and_then(|p|p.file_name()).and_then(|s|s.to_str()).unwrap_or("本地课件");
             let day = chrono_day();
             let m = json!({"id":mid,"title":title,"topic":"本地资料","day":day,"pages":records.len(),"files":records,"sourceKey":format!("local:{mid}"),"source":"import","kind":"image","courseId":course_id,
-                "excluded":[],"edited":false,"exported":false,"revision":0,"reviewRevision":null,"exportRevision":null,"exportName":"","exportPath":"","lastPage":1,"deleted":false,"touched":now()});
+                "excluded":[],"crops":{},"edited":false,"exported":false,"revision":0,"reviewRevision":null,"exportRevision":null,"exportName":"","exportPath":"","lastPage":1,"deleted":false,"touched":now()});
             self.put_material(&m)?;
             Ok(m)
         })();
@@ -152,6 +183,7 @@ impl Library {
                 "src":format!("http://keye-media.localhost/{mid}/{}?size=preview",i+1),
                 "thumb":format!("http://keye-media.localhost/{mid}/{}?size=thumb",i+1)})).collect();
             m["media"] = json!(media);
+            if !m["crops"].is_object() { m["crops"] = json!({}); }
             m.as_object_mut().unwrap().remove("files");
         }
         let mut settings = self.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":2,"timeout":30,"retries":3,"sleepMs":100}))?;
@@ -189,8 +221,8 @@ mod tests {
         let mut image_progress=Vec::new();
         let material=library.import_images_with_progress(&source,course["id"].as_str(),|done,total|{image_progress.push((done,total));Ok(())}).unwrap();
         assert_eq!(image_progress,vec![(1,3),(2,3),(3,3)]);
-        library.selection(material["id"].as_str().unwrap(),&json!([2]),&json!(0)).unwrap();
-        assert!(library.selection(material["id"].as_str().unwrap(),&json!([1]),&json!(0)).is_err());
+        library.page_state(material["id"].as_str().unwrap(),&json!([2]),&json!({}),&json!(0)).unwrap();
+        assert!(library.page_state(material["id"].as_str().unwrap(),&json!([1]),&json!({}),&json!(0)).is_err());
         let updated=library.get_material(material["id"].as_str().unwrap()).unwrap();
         let output=root.join("output.pdf");crate::pdf::export_images(&library,&updated,&output).unwrap();
         assert_eq!(lopdf::Document::load(&output).unwrap().get_pages().len(),2);
@@ -198,7 +230,7 @@ mod tests {
         let imported_pdf=crate::pdf::import_pdf_with_progress(&library,&output,course["id"].as_str(),|done,total|{pdf_progress.push((done,total));Ok(())}).unwrap();
         assert_eq!(pdf_progress,vec![(1,2),(2,2)]);
         assert_eq!(imported_pdf["pages"],json!(2));
-        library.selection(imported_pdf["id"].as_str().unwrap(),&json!([1]),&json!(0)).unwrap();
+        library.page_state(imported_pdf["id"].as_str().unwrap(),&json!([1]),&json!({}),&json!(0)).unwrap();
         let selected_pdf=library.get_material(imported_pdf["id"].as_str().unwrap()).unwrap();
         let filtered=root.join("filtered.pdf");crate::pdf::export_original_pdf(&library,&selected_pdf,&filtered).unwrap();
         assert_eq!(lopdf::Document::load(&filtered).unwrap().get_pages().len(),1);
@@ -213,6 +245,70 @@ mod tests {
         assert_eq!(again.get_material(material["id"].as_str().unwrap()).unwrap()["excluded"],json!([2]));
         assert_eq!(again.courses().unwrap().len(),1);
         assert!(again.tasks().unwrap().iter().all(|task|task["status"]=="failed"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn page_crops_survive_reopen_and_round_to_six_decimals() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        let library=Library::open(root.join("library")).unwrap();
+        let mid=id();
+        library.put_material(&json!({"id":mid,"title":"裁剪课件","pages":3,"files":[],"sourceKey":format!("local:{mid}"),"source":"import","kind":"image","courseId":null,
+            "excluded":[],"edited":false,"exported":false,"revision":0,"lastPage":1,"deleted":false,"touched":0})).unwrap();
+        library.page_state(&mid,&json!([3]),&json!({"1":[0.1234567,0.2,0.5,0.4]}),&json!(0)).unwrap();
+        let updated=library.get_material(&mid).unwrap();
+        assert_eq!(updated["crops"],json!({"1":[0.123457,0.2,0.5,0.4]}));
+        assert_eq!(updated["excluded"],json!([3]));
+        assert_eq!(updated["revision"],json!(1));
+        assert_eq!(updated["edited"],json!(true));
+        assert!(updated["touched"].as_u64().unwrap()>0);
+        library.page_state(&mid,&json!([3]),&json!({"1":[0.1234567,0.2,0.5,0.4]}),&json!(1)).unwrap();
+        assert_eq!(library.get_material(&mid).unwrap()["revision"],json!(1));
+        drop(library);
+        let again=Library::open(root.join("library")).unwrap();
+        let reopened=again.get_material(&mid).unwrap();
+        assert_eq!(reopened["crops"]["1"],json!([0.123457,0.2,0.5,0.4]));
+        assert_eq!(reopened["excluded"],json!([3]));
+        let older=id();
+        again.put_material(&json!({"id":older,"title":"未裁剪课件","pages":2,"files":[],"sourceKey":format!("local:{older}"),"source":"import","kind":"image",
+            "excluded":[],"edited":false,"exported":false,"revision":0,"lastPage":1,"deleted":false,"touched":0})).unwrap();
+        let snapshot=again.snapshot().unwrap();
+        assert!(snapshot["materials"][0]["crops"].is_object());
+        assert_eq!(snapshot["materials"][1]["crops"],json!({}));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn invalid_page_crops_are_rejected() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        let library=Library::open(root.join("library")).unwrap();
+        let mid=id();
+        library.put_material(&json!({"id":mid,"title":"裁剪课件","pages":3,"files":[],"sourceKey":format!("local:{mid}"),"source":"import","kind":"image","courseId":null,
+            "excluded":[],"edited":false,"exported":false,"revision":0,"lastPage":1,"deleted":false,"touched":0})).unwrap();
+        let cases=[json!({"4":[0.1,0.1,0.5,0.5]}),json!({"0":[0.1,0.1,0.5,0.5]}),json!({"x":[0.1,0.1,0.5,0.5]}),
+            json!({"1":[0.1,0.1,0.5]}),json!({"1":[0.1,0.1,0.5,0.5,0.5]}),json!({"1":[0.6,0.1,0.5,0.5]}),
+            json!({"1":[0.1,0.7,0.5,0.5]}),json!({"1":[0.1,0.1,0.01,0.5]}),json!({"1":[0.1,0.1,0.5,0.01]}),
+            json!({"1":"bad"}),json!([0.1,0.1,0.5,0.5])];
+        for crops in cases {
+            assert!(library.page_state(&mid,&json!([]),&crops,&json!(0)).is_err(),"crops {crops} 应被拒绝");
+        }
+        assert!(library.page_state(&mid,&json!([4]),&json!({}),&json!(0)).is_err());
+        assert_eq!(library.get_material(&mid).unwrap()["revision"],json!(0));
+        library.page_state(&mid,&json!([]),&json!({"2":[0.0,0.0,1.0,1.0]}),&json!(0)).unwrap();
+        let stored=library.get_material(&mid).unwrap();
+        assert_eq!(stored["crops"],json!({"2":[0.0,0.0,1.0,1.0]}));
+        assert_eq!(stored["revision"],json!(1));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn page_crops_tolerate_six_decimal_edge_rounding() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        let library=Library::open(root.join("library")).unwrap();
+        let mid=id();
+        library.put_material(&json!({"id":mid,"title":"贴边裁剪","pages":1,"files":[],"sourceKey":format!("local:{mid}"),"source":"import","kind":"image","courseId":null,
+            "excluded":[],"edited":false,"exported":false,"revision":0,"lastPage":1,"deleted":false,"touched":0})).unwrap();
+        // 贴边裁剪时前端分别规整 x 与 w，两者之和可能比 1 大 1e-6，这里应收紧而不是报错
+        library.page_state(&mid,&json!([]),&json!({"1":[0.666667,0.5,0.333334,0.5]}),&json!(0)).unwrap();
+        assert_eq!(library.get_material(&mid).unwrap()["crops"]["1"],json!([0.666667,0.5,0.333333,0.5]));
+        assert!(library.page_state(&mid,&json!([]),&json!({"1":[0.666668,0.5,0.333334,0.5]}),&json!(1)).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

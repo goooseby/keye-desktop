@@ -83,7 +83,7 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
         "reviewQueue" => {let ids=data["ids"].as_array().ok_or("整理列表无效。")?;for id in ids {if lib.get_material(id.as_str().ok_or("编号无效。")?)?["deleted"]==true{return Err("请先恢复课件。".into());}}
             lib.set_setting("reviewQueue",&data["ids"])?;sync(app,lib)?;Ok(json!(true))}
         "materialNote" => {lib.update_material(required(data,"id")?,&json!({"note":text(data,"note").trim().chars().take(120).collect::<String>()}))?;sync(app,lib)?;Ok(json!(true))}
-        "selection" => {lib.selection(required(data,"id")?,&data["excluded"],&data["revision"])?;sync(app,lib)?;Ok(json!(true))}
+        "pageState" => {lib.page_state(required(data,"id")?,&data["excluded"],&data["crops"],&data["revision"])?;sync(app,lib)?;Ok(json!(true))}
         "openMaterial" => {let mid=required(data,"id")?;if lib.get_material(mid)?["deleted"]==true{return Err("请先恢复课件。".into());}lib.set_setting("lastMaterial",&json!(mid))?;Ok(json!(true))}
         "lastPage" => {let mid=required(data,"id")?;let m=lib.get_material(mid)?;let page=data["page"].as_u64().unwrap_or(1).clamp(1,m["pages"].as_u64().unwrap_or(1));lib.update_material(mid,&json!({"lastPage":page}))?;Ok(json!(true))}
         "trash" => {lib.update_material(required(data,"id")?,&json!({"deleted":data["deleted"]==true,"touched":timestamp()}))?;sync(app,lib)?;Ok(json!(true))}
