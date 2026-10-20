@@ -35,6 +35,12 @@ Tauri 的 `useLocalToolsDir` 已启用。日常开发默认不构建安装包；
 
 ## 恢复和清理
 
+下载诊断日志位于当前资料库的 `logs/downloads.jsonl`；默认开发版对应项目内 `.build/dev-data/logs/downloads.jsonl`。每次图片请求记录任务、页码、尝试次数、HTTP 状态、响应类型、字节数、耗时和失败阶段。日志不记录账号凭据、完整资源网址或响应正文；超过 4 MiB 时轮换，仅保留当前文件和一份历史文件。任务临时文件清理不会删除诊断日志。记录失败不阻断下载，可从开发启动的错误输出确认日志写入情况。
+
+正式构建只保留失败请求和缺页事件，不写入逐页成功日志。`#[cfg(test)]` 测试代码不会进入正式程序，`scripts/dev/` 与 `scripts/inspect.ps1` 不属于安装包资源；远程调试端口只由显式的开发启动脚本开启。开发构建的数据默认回落到项目内目录，正式构建忽略 `KEYE_DEV_DATA_DIR`，防止环境变量混淆两种数据位置。
+
+下载容错回归测试：加载 `scripts/env.ps1` 后执行 `cargo test --manifest-path src-tauri/Cargo.toml --locked --lib`。平台测试使用本地 HTTP 模拟服务重现第 30 页返回 HTTP 200、JPEG 类型但 0 字节的场景，检查另外 39 页继续下载；资料库测试检查 39 页连续页序、39 页 PDF 导出，以及已有缺失空位迁移后排除、裁剪、阅读位置保留和重复打开的幂等性。
+
 开发阶段的测试资料**就在本项目** `.build/dev-data/`，重新编译不会清除。若只想清理缓存，关闭程序后可以删除 `.build/cargo/`、`dist/`、`node_modules/`；保留 `.build/dev-data/`。项目专用 Rust 位于 `.toolchain/`。Visual Studio Build Tools 请通过 Windows“已安装的应用”或 Visual Studio Installer 卸载，不手动删系统文件。
 
 官方安装说明：[Tauri Windows 前置条件](https://v2.tauri.app/start/prerequisites/)、[Rustup](https://rustup.rs/)、[WebView2 分发](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)。
@@ -53,3 +59,5 @@ node scripts\dev\check-crop-flicker.mjs# 勾选时已裁剪缩略图不闪回原
 ```
 
 脚本只读取界面状态，不改资料库；`check-crop` 不执行真实导出（导出尺寸由 `cargo test` 的 PDF 测试断言）。界面模块划分与改动约定见 [ARCHITECTURE.md](ARCHITECTURE.md#界面结构)。
+
+更新策略无需运行窗口即可回归：`node --test scripts/dev/update-policy.test.mjs` 覆盖忽略版本、24 小时提醒、`NEW` 常驻与直达日志、并发检查、离线、开发版禁用和安装前任务保护；它使用模拟更新结果，不发布版本、不访问正式更新源、不执行安装。Rust 的 `updates::tests` 验证偏好持久化与资料库配置互不影响。

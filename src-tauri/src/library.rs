@@ -14,6 +14,23 @@ fn err(e: impl std::fmt::Display) -> String { e.to_string() }
 fn now() -> u128 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() }
 fn id() -> String { Uuid::new_v4().simple().to_string() }
 fn round6(v: f64) -> f64 { (v*1e6).round()/1e6 }
+// Compact only explicit download holes; preserve every real file and its edits.
+fn compact_download_pages(m: &mut Value) -> bool {
+    let Some(files)=m["files"].as_array() else{return false;};
+    if !files.iter().any(|f|f["missing"]==true){return false;}
+    let mut mapping=std::collections::HashMap::new();
+    let mut kept=Vec::new();
+    for (index,file) in files.iter().enumerate(){if file["missing"]!=true{kept.push(file.clone());mapping.insert(index+1,kept.len());}}
+    let excluded:Vec<usize>=m["excluded"].as_array().into_iter().flatten().filter_map(|p|mapping.get(&(p.as_u64()? as usize)).copied()).collect();
+    let mut crops=serde_json::Map::new();
+    for (key,value) in m["crops"].as_object().into_iter().flatten(){if let Some(page)=key.parse::<usize>().ok().and_then(|p|mapping.get(&p)){crops.insert(page.to_string(),value.clone());}}
+    let old=m["lastPage"].as_u64().unwrap_or(1) as usize;
+    let last=mapping.get(&old).copied().unwrap_or_else(||mapping.iter().filter(|(p,_)|**p<old).map(|(_,p)|*p).max().unwrap_or(1));
+    m["sourceMissingPages"]=m["missingPages"].clone();
+    m.as_object_mut().unwrap().remove("missingPages");
+    m["pages"]=json!(kept.len());m["files"]=json!(kept);m["excluded"]=json!(excluded);m["crops"]=Value::Object(crops);m["lastPage"]=json!(last);
+    true
+}
 // 前端把 x 与 w（y 与 h）分别规整到 6 位小数，贴边裁剪时两者之和最多比 1 大 1e-6；这里只容忍这一点点偏差。
 const CROP_ROUND_FUZZ: f64 = 1.5e-6;
 
@@ -60,6 +77,12 @@ impl Library {
         if version>1{return Err("资料库由更新的课页版本创建，当前版本无法打开。".into());}
         if version==0{db.execute_batch("PRAGMA user_version=1;").map_err(err)?;}
         drop(db);
+        let mut db=library.db()?;
+        let tx=db.transaction().map_err(err)?;
+        for mut m in library.materials()?{if compact_download_pages(&mut m){
+            tx.execute("UPDATE materials SET data=?1 WHERE id=?2",params![m.to_string(),m["id"].as_str()]).map_err(err)?;
+        }}
+        tx.commit().map_err(err)?;
         for mut task in library.tasks()? {if matches!(task["status"].as_str(),Some("queued"|"running"|"paused")) {
             task["status"]=json!("failed");task["error"]=json!("程序上次退出时任务尚未完成，请重试。");library.put_task(&task)?;
         }}
@@ -133,8 +156,10 @@ impl Library {
         if m["revision"] != *revision { return Err("课件已更新，请重新打开后再整理。".into()); }
         let pages = m["pages"].as_u64().unwrap_or(0);
         let mut selected: Vec<u64> = excluded.as_array().ok_or("页面范围无效。")?.iter().map(|v|v.as_u64().filter(|n|*n>=1 && *n<=pages).ok_or("页面范围无效。".to_string())).collect::<Result<_,_>>()?;
-        selected.sort_unstable(); selected.dedup();
-        let crops = parse_crops(crops,pages)?;
+        let missing:Vec<u64>=m["missingPages"].as_array().into_iter().flatten().filter_map(|p|p["page"].as_u64()).collect();
+        selected.extend(&missing);selected.sort_unstable(); selected.dedup();
+        let mut crops = parse_crops(crops,pages)?;
+        for page in missing{crops.as_object_mut().unwrap().remove(&page.to_string());}
         let current = if m["crops"].is_object() {m["crops"].clone()} else {json!({})};
         if m["excluded"] != json!(selected) || current != crops {
             m["excluded"] = json!(selected); m["crops"] = crops; m["edited"] = json!(true); m["revision"] = json!(revision.as_u64().unwrap_or(0)+1); m["touched"] = json!(now());
@@ -175,13 +200,25 @@ impl Library {
         if result.is_err() { let _ = fs::remove_dir_all(&dir); }
         result
     }
+    pub fn import_downloaded_pages<F>(&self,batch:&crate::platform::DownloadedPages,course_id:Option<&str>,progress:F)->Result<Value,String>
+    where F:FnMut(usize,usize)->Result<(),String>{
+        if batch.paths.len()!=batch.source_pages.len()||batch.source_pages.iter().any(|p|*p==0||*p>batch.total){return Err("下载页码记录无效。".into());}
+        let mut m=self.import_images_with_progress(&batch.paths,course_id,progress)?;
+        let records=m["files"].as_array().ok_or("下载页记录无效。")?.clone();
+        let mut files=vec![json!({"missing":true});batch.total];
+        for (page,record) in batch.source_pages.iter().zip(records){files[page-1]=record;}
+        m["files"]=json!(files);m["pages"]=json!(batch.total);m["missingPages"]=json!(batch.missing);
+        m["excluded"]=json!(batch.missing.iter().map(|p|p["page"].clone()).collect::<Vec<_>>());
+        compact_download_pages(&mut m);
+        self.put_material(&m)?;Ok(m)
+    }
     pub fn snapshot(&self) -> Result<Value, String> {
         let mut materials = self.materials()?;
         for m in &mut materials {
             let mid = m["id"].as_str().unwrap_or("");
-            let media: Vec<Value> = m["files"].as_array().into_iter().flatten().enumerate().map(|(i,_)| json!({
-                "src":format!("http://keye-media.localhost/{mid}/{}?size=preview",i+1),
-                "thumb":format!("http://keye-media.localhost/{mid}/{}?size=thumb",i+1)})).collect();
+            let media: Vec<Value> = m["files"].as_array().into_iter().flatten().enumerate().map(|(i,file)| if file["missing"]==true{Value::Null}else{json!({
+                "src":format!("http://keye-media.localhost/{mid}/{}?size=preview&layout=2",i+1),
+                "thumb":format!("http://keye-media.localhost/{mid}/{}?size=thumb&layout=2",i+1)})}).collect();
             m["media"] = json!(media);
             if !m["crops"].is_object() { m["crops"] = json!({}); }
             m.as_object_mut().unwrap().remove("files");
@@ -210,6 +247,36 @@ pub fn is_image(path:&Path)->bool {matches!(path.extension().and_then(|x|x.to_st
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn partial_download_compacts_pages_and_exports_all_real_pages(){
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        fs::create_dir_all(&root).unwrap();let input=root.join("page.jpg");image::RgbImage::new(48,32).save(&input).unwrap();
+        let batch=crate::platform::DownloadedPages{paths:vec![input;39],source_pages:(1..=40).filter(|p|*p!=30).collect(),total:40,
+            missing:vec![json!({"page":30,"reason":"服务器返回空图片（0 字节）"})]};
+        let library=Library::open(root.join("library")).unwrap();
+        let material=library.import_downloaded_pages(&batch,None,|_,_|Ok(())).unwrap();let mid=material["id"].as_str().unwrap();
+        assert_eq!(material["pages"],39);assert_eq!(material["excluded"],json!([]));assert!(material["missingPages"].is_null());
+        assert!(material["files"][29]["preview"].as_str().unwrap().ends_with("00030-preview.jpg"));
+        assert!(library.media_file(mid,30,"preview").unwrap().exists());assert!(library.media_file(mid,39,"preview").unwrap().exists());
+        library.page_state(mid,&json!([]),&json!({"30":[0.1,0.1,0.8,0.8]}),&json!(0)).unwrap();
+        let persisted=Library::open(root.join("library")).unwrap().get_material(mid).unwrap();
+        assert_eq!(persisted["excluded"],json!([]));assert_eq!(persisted["crops"],json!({"30":[0.1,0.1,0.8,0.8]}));
+        let snapshot=library.snapshot().unwrap();assert_eq!(snapshot["materials"][0]["media"].as_array().unwrap().len(),39);
+        let output=root.join("partial.pdf");crate::pdf::export_images(&library,&persisted,&output).unwrap();
+        assert_eq!(lopdf::Document::load(output).unwrap().get_pages().len(),39);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn existing_download_holes_are_compacted_without_losing_edits(){
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        let library=Library::open(root.clone()).unwrap();let mid=id();
+        library.put_material(&json!({"id":mid,"sourceKey":mid,"files":[{"preview":"a"},{"missing":true},{"preview":"b"},{"preview":"c"}],"pages":4,"excluded":[2,4],"crops":{"2":[0.1,0.1,0.8,0.8],"3":[0.2,0.2,0.6,0.6]},"missingPages":[{"page":2}],"lastPage":3,"revision":7,"reviewRevision":7})).unwrap();
+        let reopened=Library::open(root.clone()).unwrap();let m=reopened.get_material(&mid).unwrap();
+        assert_eq!(m["pages"],3);assert_eq!(m["excluded"],json!([3]));assert_eq!(m["crops"],json!({"2":[0.2,0.2,0.6,0.6]}));assert_eq!(m["lastPage"],2);
+        assert_eq!(m["revision"],7);assert_eq!(m["reviewRevision"],7);assert!(m["missingPages"].is_null());assert_eq!(m["sourceMissingPages"],json!([{"page":2}]));
+        assert_eq!(Library::open(root.clone()).unwrap().get_material(&mid).unwrap(),m);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn local_library_survives_reopen_and_exports_selected_pages() {
         let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());

@@ -14,7 +14,7 @@
   <div class="app-titlebar" data-tauri-drag-region="deep"><div class="app-titlebar-brand" data-tauri-drag-region><img src="/app-icon.svg" alt="" data-tauri-drag-region><span data-tauri-drag-region>课页</span></div><div class="app-titlebar-spacer" data-tauri-drag-region></div><div class="app-titlebar-controls"><button id="window-minimize" type="button" aria-label="最小化窗口" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button><button id="window-maximize" type="button" aria-label="最大化或还原窗口" title="最大化或还原"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button><button id="window-close" type="button" aria-label="关闭窗口" title="关闭"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div></div>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>课页</span></a>
+      <div class="brand-block"><a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>课页</span></a><button id="app-update-badge" class="brand-update-badge" data-action="view-update" hidden aria-label="发现新版本，查看更新">NEW</button></div>
       <div class="workspace-label">我的工作空间</div>
       <nav id="nav" aria-label="主导航"></nav>
       <div class="sidebar-bottom">
@@ -35,6 +35,7 @@
   <script src="/ui/state.js"></script>
   <script src="/ui/media.js"></script>
   <script src="/ui/actions.js"></script>
+  <script src="/ui/updates.js"></script>
   <script src="/ui/covers.js"></script>
   <script src="/ui/pages/library.js"></script>
   <script src="/ui/pages/course.js"></script>

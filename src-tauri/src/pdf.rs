@@ -198,7 +198,7 @@ pub fn export_images(lib:&Library, material:&Value, destination:&Path)->Result<(
     let pages_id=doc.new_object_id();
     let mut page_ids=Vec::new();
     for (i,record) in files.iter().enumerate(){
-        if excluded.contains(&((i+1) as u64)){continue;}
+        if record["missing"]==true||excluded.contains(&((i+1) as u64)){continue;}
         let relative=record["preview"].as_str().ok_or("页面路径无效。")?;
         let path=lib.root.join(relative);
         let (jpg,width,height)=match crops.get(&((i+1) as u64)) {

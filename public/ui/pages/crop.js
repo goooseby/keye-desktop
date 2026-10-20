@@ -2,9 +2,8 @@
 
 // 放大浮层与裁剪模式：整页查看、非破坏性裁剪的交互与取景，以及浮层的控件同步。
 
-let fullscreenPreloads=[];
+
 let fullscreenFrame=null;
-let fullscreenImageRequest=0;
 let cropGesture=null;
 let cropSavedAt=false;
 let cropSavedTimer=null;
@@ -14,31 +13,24 @@ function scheduleFullscreen(){
   fullscreenFrame=requestAnimationFrame(()=>{fullscreenFrame=null;if(modal.open&&modal.classList.contains('fullscreen-modal'))showFullscreen();});
 }
 function showFullscreen(){
-  const m=material(),excluded=m.excluded.includes(view.currentPage),media=m.media?.[view.currentPage-1];
+  const m=material();
   const updating=modal.open&&modal.classList.contains('fullscreen-modal')&&$('#fullscreen-stage');
   if(updating){
     $('#fullscreen-title').textContent=`${m.title} · 第 ${view.currentPage} 页`;
-    const stage=$('#fullscreen-stage'),image=stage.querySelector('img.slide');
-    if(media&&image&&image.src!==media.src){
-      const request=++fullscreenImageRequest,page=view.currentPage,loader=new Image();
-      stage.setAttribute('aria-busy','true');loader.decoding='async';loader.src=media.src;
-      const commit=()=>{if(request!==fullscreenImageRequest||view.currentPage!==page||!image.isConnected)return;image.src=media.src;image.alt=`${m.title} · 第 ${page} 页`;stage.removeAttribute('aria-busy');syncImageCrop(image,material(),view.currentPage);applyCropViews();layoutCropLayer();};
-      if(loader.decode)loader.decode().then(commit).catch(commit);else loader.onload=commit;
-    }else if(media&&image){++fullscreenImageRequest;stage.removeAttribute('aria-busy');}
-    else if(!view.crop)stage.innerHTML=slide(m,view.currentPage);
-    if(!view.crop)syncImageCrop(stage.querySelector('img.slide'),m,view.currentPage);
   }else{
     modal.classList.add('fullscreen-modal');
     $('#modal-content').innerHTML=`<div class="modal-header"><h2 id="fullscreen-title">${esc(m.title)} · 第 ${view.currentPage} 页</h2><div class="fullscreen-shortcuts" id="fullscreen-shortcuts" data-signature="${view.crop?1:0}">${fullscreenShortcutsHtml()}</div><button class="icon-button" data-action="close-modal" aria-label="关闭">${icon('close')}</button></div><div class="modal-body"><div id="fullscreen-stage">${stageHtml(m)}</div><div class="full-nav${view.crop?' cropping':''}" data-signature="">${fullNavHtml(m)}</div></div>`;
     modal.showModal();
     if(view.crop)fillCropLayer();
   }
+  updateSlideSource($('#fullscreen-stage'),m,view.currentPage,!!view.crop,layoutCropLayer);
   syncFullscreenChrome();
-  requestAnimationFrame(()=>{applyCropViews();layoutCropLayer();});
-  fullscreenPreloads=[view.currentPage-1,view.currentPage+1].map(page=>m.media?.[page-1]?.src).filter(Boolean).map(src=>{const image=new Image();image.src=src;return image;});
+  requestAnimationFrame(layoutCropLayer);
+  preloadSlides(m,[view.currentPage+1,view.currentPage-1,view.currentPage+2,view.currentPage-2]);
 }
 function stageHtml(m){
-  return view.crop?`${slide(m,view.currentPage,false,true)}<div class="crop-layer" id="crop-layer"></div>`:slide(m,view.currentPage);
+  const surface='<canvas class="slide preview-canvas"></canvas>';
+  return view.crop?`${surface}<div class="crop-layer" id="crop-layer"></div>`:surface;
 }
 function cropFrame(m){const crop=cropOf(m,view.currentPage);return crop?{page:view.currentPage,x:crop[0],y:crop[1],w:crop[2],h:crop[3]}:{page:view.currentPage,...fullCrop()};}
 function cropFrameChanged(){
@@ -48,6 +40,7 @@ function cropFrameChanged(){
 const isFullCrop=rect=>!!rect&&rect[0]<=0.0005&&rect[1]<=0.0005&&rect[2]>=0.9995&&rect[3]>=0.9995;
 // 浏览态只留浏览该有的动作；进入裁剪模式后一次给全，位置不再变动。
 function cropToolsHtml(m){
+  if(missingPage(m,view.currentPage))return '<span>此页缺失，无法裁剪</span>';
   const crop=cropOf(m,view.currentPage),cropping=!!view.crop,actionable=cropping?(cropFrameChanged()||!!crop):!!crop,parts=[];
   parts.push(`<button data-action="crop-toggle" class="${cropping?'primary':''}">${icon('crop')}${cropping?'完成裁剪':'裁剪'}</button>`);
   if(cropping){
@@ -81,14 +74,24 @@ function syncFullscreenChrome(){
   if(hint)hint.innerHTML=view.crop?'<kbd>方向键</kbd> 微调裁剪框　<kbd>Enter</kbd> 完成':`<kbd>←</kbd> <kbd>→</kbd> 翻页${view.pageFilter==='kept'?'（跳过已排除页）':''}`;
   const nav=$('.full-nav');
   if(nav){
-    const signature=[view.crop?1:0,view.currentPage,m.pages,view.selected.size,cropOf(m,view.currentPage)?1:0,cropFrameChanged()?1:0,m.excluded.includes(view.currentPage)?1:0,stepTarget(-1)===null?1:0,stepTarget(1)===null?1:0].join('|');
-    if(nav.dataset.signature!==signature){nav.dataset.signature=signature;nav.classList.toggle('cropping',!!view.crop);nav.innerHTML=fullNavHtml(m);}
+    // 翻页只修改现有控件，避免重建按钮打断鼠标点击或丢失焦点。
+    const mode=String(!!view.crop);
+    if(nav.dataset.signature!==mode){nav.dataset.signature=mode;nav.classList.toggle('cropping',!!view.crop);nav.innerHTML=fullNavHtml(m);}
+    const tools=nav.querySelector('#fullscreen-crop-tools');
+    const signature=[view.crop?view.selected.size:0,cropOf(m,view.currentPage)?1:0,cropFrameChanged()?1:0,missingPage(m,view.currentPage)?1:0].join('|');
+    if(tools&&tools.dataset.signature!==signature){tools.dataset.signature=signature;tools.innerHTML=cropToolsHtml(m);}
+    const previous=nav.querySelector('[data-action="previous"]'),next=nav.querySelector('[data-action="next"]'),page=nav.querySelector('#fullscreen-page'),exclude=nav.querySelector('[data-action="toggle-fullscreen-page"]');
+    if(previous)previous.disabled=stepTarget(-1)===null;
+    if(next)next.disabled=stepTarget(1)===null;
+    if(page)page.textContent=`${view.currentPage} / ${m.pages}`;
+    if(exclude){exclude.textContent=missingPage(m,view.currentPage)?'此页缺失':m.excluded.includes(view.currentPage)?'恢复此页':'排除此页';exclude.disabled=!!missingPage(m,view.currentPage);}
   }
   updateCropReadout();layoutCropLayer();
 }
 function toggleCropMode(){
   if(view.crop)return exitCropMode();
   const m=material();if(!m)return;
+  if(missingPage(m,view.currentPage))return toast('平台未提供此页，无法裁剪。');
   view.crop=cropFrame(m);rebuildFullscreenStage();syncFullscreenChrome();
 }
 function exitCropMode(){view.crop=null;rebuildFullscreenStage();syncFullscreenChrome();}
@@ -96,8 +99,9 @@ function rebuildFullscreenStage(){
   const m=material(),stage=$('#fullscreen-stage');if(!m||!stage)return;
   stage.innerHTML=stageHtml(m);
   if(view.crop)fillCropLayer();
+  updateSlideSource(stage,m,view.currentPage,!!view.crop,layoutCropLayer);
   applyCropViews();
-  requestAnimationFrame(()=>{applyCropViews();layoutCropLayer();});
+  requestAnimationFrame(layoutCropLayer);
 }
 function fillCropLayer(){
   const layer=$('#crop-layer');if(!layer)return;
@@ -110,7 +114,7 @@ function paintCropBox(){
   box.style.left=`${x*100}%`;box.style.top=`${y*100}%`;box.style.width=`${w*100}%`;box.style.height=`${h*100}%`;
 }
 function layoutCropLayer(){
-  const stage=$('#fullscreen-stage'),image=stage?.querySelector('img.slide'),layer=stage?.querySelector('.crop-layer');
+  const stage=$('#fullscreen-stage'),image=stage?.querySelector('.slide'),layer=stage?.querySelector('.crop-layer');
   if(!stage||!image||!layer)return;
   const bitmap=pageBitmapRect(image);
   if(!bitmap){layer.style.display='none';return;}
@@ -130,7 +134,7 @@ function ratioLabel(width,height){
 function updateCropReadout(){
   const readout=$('#crop-readout');if(!readout)return;
   if(!view.crop){readout.textContent=cropOf(material(),view.currentPage)?'此页已裁剪 · 导出使用裁剪后的画面':'';return;}
-  const image=$('#fullscreen-stage img.slide'),iw=image?.naturalWidth||0,ih=image?.naturalHeight||0;
+  const image=$('#fullscreen-stage .slide'),iw=image?.naturalWidth||0,ih=image?.naturalHeight||0;
   const {x,y,w,h}=view.crop;
   const size=iw?` · ${Math.round(iw*w)}×${Math.round(ih*h)} ${ratioLabel(iw*w,ih*h)}`:'';
   readout.textContent=`裁剪范围 ${Math.round(w*100)}% × ${Math.round(h*100)}%${size}${cropSavedAt?' · 已保存':''}`;
@@ -216,7 +220,7 @@ document.addEventListener('pointerup',()=>{
   }
   commitCropFrame().catch(fail);
 });
-document.addEventListener('load',event=>{if(event.target?.matches?.('img.slide')){applyCropViews();layoutCropLayer();}},true);
+document.addEventListener('load',event=>{const image=event.target;if(image?.matches?.('img.slide')){applyCropViews(image.parentElement);if(image.closest('#fullscreen-stage'))layoutCropLayer();}},true);
 window.addEventListener('resize',()=>{applyCropViews();layoutCropLayer();});
 
 

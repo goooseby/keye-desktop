@@ -3,6 +3,7 @@
 // 全局状态与语义：快照数据、视图状态、派生选择器，以及“整理/导出”的唯一口径。
 
 let state={materials:[],tasks:[],settings:{exportMode:'review'},lastMaterial:null};
+const updateState={info:null,checking:false,downloading:false,ready:false,progress:0,error:'',checkPromise:null,startupScheduled:false,promptedVersion:'',reminderTimer:null};
 let availableCourses=[];
 const today=new Date();
 const dateString=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -21,6 +22,7 @@ const stepTarget=step=>{const pages=pageList();if(!pages.length)return null;if(s
 const cropsOf=m=>(m&&m.crops)||{};
 const cropOf=(m,page)=>cropsOf(m)[String(page)]||null;
 const cropCount=(m,keptOnly=false)=>{const crops=cropsOf(m);return Object.keys(crops).filter(k=>!keptOnly||!m.excluded.includes(Number(k))).length;};
+const missingPage=(m,page)=>(m?.missingPages||[]).find(item=>item.page===page);
 const fullCrop=()=>({x:0,y:0,w:1,h:1});
 const round6=value=>Math.round(value*1e6)/1e6;
 const badge=m=>`<span class="badge ${m.reviewRevision===m.revision?'exported':m.edited?'editing':'pending'}">${m.reviewRevision===m.revision?'已整理':m.edited?'整理中':'待整理'}</span>`;

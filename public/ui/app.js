@@ -4,7 +4,6 @@
 
 let desktop=null;
 let ready=false;
-const updateState={info:null,checking:false,downloading:false,ready:false,progress:0,error:''};
 const pending=new Map();
 let sequence=0;
 function call(command,data={}){
@@ -42,6 +41,7 @@ function applySnapshot(snapshot){
 }
 function hydrate(){document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));}
 function renderShell(){
+  syncUpdateBadge();
   $('#app-version').textContent='v'+(state.appVersion||'0.1.1');
   document.body.classList.toggle('editing-course',view.page==='editor');
   const running=state.tasks.filter(t=>['queued','running','paused'].includes(t.status)).length;
@@ -62,7 +62,7 @@ function route(){
   render();main.scrollTop=0;
 }
 function navigate(page){if(view.saving)return toast('正在保存，请稍候再切换。');if(location.hash===`#${page}`)route();else location.hash=page;}
-function render(){renderShell();({library:renderLibrary,course:renderCourse,acquire:renderAcquire,editor:renderEditor,tasks:renderTasks,about:renderAbout,settings:renderSettings}[view.page]||renderLibrary)();hydrate();applyCropViews();}
+function render(){renderShell();({library:renderLibrary,course:renderCourse,acquire:renderAcquire,editor:renderEditor,tasks:renderTasks,about:renderAbout,settings:renderSettings}[view.page]||renderLibrary)();hydrate();applyCropViews();maybePromptUpdate();}
 function showModal(title,body,actions=''){
   modal.classList.remove('fullscreen-modal');$('#modal-content').innerHTML=`<div class="modal-header"><h2>${title}</h2><button class="icon-button" data-action="close-modal" aria-label="关闭">${icon('close')}</button></div><div class="modal-body">${body}</div>${actions?`<div class="modal-actions">${actions}</div>`:''}`;if(!modal.open)modal.showModal();
 }
@@ -108,8 +108,8 @@ window.startKeye=()=>{
   window.keyeListen('snapshot-changed',applySnapshot);
   window.keyeListen('task-changed',task=>{const index=state.tasks.findIndex(t=>t.id===task.id);if(index>=0)state.tasks[index]=task;else state.tasks.push(task);renderShell();if(view.page==='tasks')renderTasks();});
   window.keyeListen('notice',toast);
-  window.addEventListener('keye-update-progress',event=>{updateState.progress=event.detail;renderUpdateStatus();});
-  call('snapshot').then(snapshot=>{clearTimeout(loadingTimer);applySnapshot(snapshot);route();}).catch(error=>{clearTimeout(loadingTimer);main.innerHTML=empty('资料库打开失败',esc(error.message));});
+  window.addEventListener('keye-update-progress',event=>{updateState.progress=event.detail;renderUpdateStatus();renderUpdateDialogStatus();});
+  call('snapshot').then(snapshot=>{clearTimeout(loadingTimer);applySnapshot(snapshot);route();scheduleStartupUpdateCheck();}).catch(error=>{clearTimeout(loadingTimer);main.innerHTML=empty('资料库打开失败',esc(error.message));});
 };
 
 // 外壳级动作：模态关闭与使用说明在任何页面都可用。

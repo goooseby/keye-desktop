@@ -50,6 +50,7 @@ fn snapshot(app:&AppHandle,library:&Library)->Result<Value,String>{
     value["scanned"]=json!(runtime.scanned);value["scanning"]=json!(runtime.scanning);value["scanError"]=json!(runtime.scan_error);
     value["loginStatus"]=json!(runtime.login_status);
     value["loginWindowOpen"]=json!(runtime.login_window.as_ref().is_some_and(|label|app.get_webview_window(label).is_some()));
+    value["updatePreferences"]=json!(crate::updates::load(&state.base));
     Ok(value)
 }
 fn sync(app: &AppHandle, library: &Library) -> Result<(), String> { app.emit("snapshot-changed",snapshot(app,library)?).map_err(|e|e.to_string()) }
@@ -67,6 +68,8 @@ pub async fn request(app: AppHandle, state: tauri::State<'_, AppState>, command:
 fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Value,String>{
     match command {
         "snapshot" => snapshot(app,lib),
+        "updateCapability" => Ok(json!(!cfg!(debug_assertions))),
+        "updatePreferences" => {let state=app.state::<AppState>();Ok(json!(crate::updates::save(&state.base,data)?))}
         "login" => login(app,lib),
         "loginControl" => login_control(app,data),
         "logout" => {let state=app.state::<AppState>();let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;runtime.auth=None;runtime.courses.clear();runtime.scanned=false;runtime.login_status.clear();drop(runtime);sync(app,lib)?;Ok(json!(true))}
@@ -341,18 +344,19 @@ fn run_download(app:AppHandle,lib:Arc<Library>,auth:crate::platform::Auth,mut ta
         task["message"]=json!(format!("准备下载 {} 页",urls.len()));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
         let temp=lib.root.join("temporary").join(&id);
         let result=(||{
-            let paths=crate::platform::download_images(&client,&urls,&temp,|done,total|{
+            let log_path=lib.root.join("logs").join("downloads.jsonl");
+            let batch=crate::platform::download_images(&client,&urls,&temp,&log_path,|done,total|{
                 while control.paused.load(Ordering::SeqCst)&&!control.cancelled.load(Ordering::SeqCst){std::thread::sleep(std::time::Duration::from_millis(150));}
                 if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
                 let percent=(done*85/total.max(1)) as u64;
-                if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("已下载 {done} / {total} 页"));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());}
+                if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("已处理 {done} / {total} 页"));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());}
                 Ok(())
             })?;
             if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
             task["progress"]=json!(85);task["message"]=json!("正在整理已下载页面");lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());
             let gid=required(&course,"groupId")?;
             if !lib.courses()?.iter().any(|c|c["id"]==gid){lib.save_course(&json!({"id":gid,"title":course["title"]}))?;}
-            let mut material=lib.import_images_with_progress(&paths,Some(gid),|done,total|{
+            let mut material=lib.import_downloaded_pages(&batch,Some(gid),|done,total|{
                 if control.cancelled.load(Ordering::SeqCst){return Err("已取消".into());}
                 let percent=85+(done*14/total.max(1)) as u64;
                 if task["progress"].as_u64()!=Some(percent){task["progress"]=json!(percent);task["message"]=json!(format!("正在整理 {done} / {total} 页"));lib.put_task(&task)?;let _=app.emit("task-changed",task.clone());}
@@ -374,7 +378,16 @@ fn run_download(app:AppHandle,lib:Arc<Library>,auth:crate::platform::Auth,mut ta
         Ok::<Value,String>(material)
     })();
     match result {
-        Ok(material)=>{task["status"]=json!("done");task["progress"]=json!(100);task["message"]=json!("下载完成");task["materialId"]=material["id"].clone();}
+        Ok(material)=>{
+            let missing=material["sourceMissingPages"].as_array().cloned().unwrap_or_default();
+            if !missing.is_empty(){
+                let pages=missing.iter().filter_map(|p|p["page"].as_u64()).map(|p|p.to_string()).collect::<Vec<_>>().join("、");
+                let saved=material["pages"].as_u64().unwrap_or(0);
+                let warning=format!("已保存 {} / {} 页；平台缺失原始第 {} 页，已跳过。",saved,saved+missing.len() as u64,pages);
+                task["warning"]=json!(warning);task["missingPages"]=json!(missing);
+            }
+            task["status"]=json!("done");task["progress"]=json!(100);task["message"]=json!(if missing.is_empty(){"下载完成"}else{"下载完成（部分页面缺失）"});task["materialId"]=material["id"].clone();
+        }
         Err(error)=>{task["status"]=json!(if error=="已取消"{"cancelled"}else{"failed"});task["error"]=json!(error);task["message"]=json!("下载未完成");}
     }
     let _=lib.put_task(&task);

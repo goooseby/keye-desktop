@@ -32,13 +32,13 @@ const expression = `(async()=>{
   // 1) 双击放大并进入裁剪模式
   box('[data-page-tile="1"] .page-art').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
   await raf();await wait(200);
-  out.open={fullscreen:modal.open&&modal.classList.contains('fullscreen-modal'),tools:!!box('.full-tools'),stageImage:!!box('#fullscreen-stage img.slide')};
+  out.open={fullscreen:modal.open&&modal.classList.contains('fullscreen-modal'),tools:!!box('.full-tools'),stageImage:!!box('#fullscreen-stage .slide')};
   box('[data-action="crop-toggle"]').click();
   await raf();await wait(300);
   const layer=box('#crop-layer');
   if(!layer)return JSON.stringify({...out,error:'未进入裁剪模式'});
   const frame=layer.getBoundingClientRect();
-  const bitmap=pageBitmapRect(box('#fullscreen-stage img.slide'));
+  const bitmap=pageBitmapRect(box('#fullscreen-stage .slide'));
   out.cropMode={
     frame:view.crop&&[view.crop.x,view.crop.y,view.crop.w,view.crop.h],
     handles:document.querySelectorAll('.crop-handle').length,
