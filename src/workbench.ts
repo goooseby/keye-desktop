@@ -14,14 +14,21 @@ declare global {
 }
 
 if (isTauri()) {
-  let closing = false
+  let preparingClose = false
   const appWindow = getCurrentWindow()
   await appWindow.onCloseRequested(async event => {
-    if (closing) return
-    event.preventDefault()
-    if (await window.prepareWorkbenchClose()) {
-      closing = true
-      await appWindow.close()
+    if (preparingClose) {
+      event.preventDefault()
+      return
+    }
+    preparingClose = true
+    try {
+      if (!await window.prepareWorkbenchClose()) event.preventDefault()
+    } catch (error) {
+      event.preventDefault()
+      console.error('关闭前保存检查失败', error)
+    } finally {
+      preparingClose = false
     }
   })
   await window.startWorkbench({

@@ -69,6 +69,8 @@
 
 ## 从“课页”升级
 
+v0.5.0 已因窗口关闭问题撤回，请安装 v0.5.1 或后续版本。已安装 v0.5.0 的用户可通过应用内更新升级；若遇到无法退出，可先用任务管理器结束该进程，再运行新安装包。
+
 **v0.5.0 起，Windows 端与 Android 端统一使用“华工课栈”名称。** 已安装“课页”的用户可通过原有检查更新入口升级，也可运行新安装包覆盖升级，无需先卸载或重新导入资料。
 
 - 资料库、原始页面、裁剪与整理记录继续沿用；旧安装位置和用户自选目录不自动搬迁。
@@ -100,4 +102,4 @@ pwsh -NoProfile -File .\scripts\dev.ps1
 
 默认桌面入口为 `workbench.html`，界面位于 `public/workbench/`。开发资料使用项目内 `.build/dev-data/`，与安装用户的数据隔离，清理构建缓存时请保留该目录。单独用浏览器打开前端不能调用桌面业务。
 
-[架构与模块](docs/ARCHITECTURE.md) · [工作台业务接入](docs/WORKBENCH-INTEGRATION.md) · [公告维护](docs/ANNOUNCEMENTS.md) · [版本记录](docs/releases/v0.5.0.md)
+[架构与模块](docs/ARCHITECTURE.md) · [工作台业务接入](docs/WORKBENCH-INTEGRATION.md) · [公告维护](docs/ANNOUNCEMENTS.md) · [版本记录](docs/releases/v0.5.1.md)

@@ -1,6 +1,6 @@
 [package]
 name = "keye-desktop"
-version = "0.5.0"
+version = "0.5.1"
 description = "华工课栈桌面应用"
 authors = ["华工课栈项目"]
 license = ""

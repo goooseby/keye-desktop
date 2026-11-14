@@ -1,4 +1,4 @@
-param([switch]$BulletinsOnly)
+param([switch]$BulletinsOnly, [switch]$CloseOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 Set-Location -LiteralPath $projectRoot
@@ -21,6 +21,12 @@ try {
     try { Invoke-RestMethod 'http://127.0.0.1:9223/json/list' -TimeoutSec 1 | Out-Null; $connected=$true; break } catch { Start-Sleep -Milliseconds 250 }
   }
   if (-not $connected) { throw '隔离测试窗口未能启动。' }
+  if ($CloseOnly) {
+    node (Join-Path $PSScriptRoot 'workbench-close.test.mjs')
+    if ($LASTEXITCODE -ne 0) { throw '原生窗口关闭检查失败。' }
+    if (-not $qaProcess.WaitForExit(5000)) { throw '窗口关闭后开发进程未退出。' }
+    return
+  }
   if ($BulletinsOnly) {
     node (Join-Path $PSScriptRoot 'workbench-bulletins.test.mjs')
     if ($LASTEXITCODE -ne 0) { throw '公告与更新检查失败。' }
@@ -46,6 +52,9 @@ try {
   }
   node (Join-Path $PSScriptRoot 'workbench-course.test.mjs') --resume
   if ($LASTEXITCODE -ne 0) { throw '课程删除计划重启恢复检查失败。' }
+  node (Join-Path $PSScriptRoot 'workbench-close.test.mjs')
+  if ($LASTEXITCODE -ne 0) { throw '原生窗口关闭检查失败。' }
+  if (-not $qaProcess.WaitForExit(5000)) { throw '窗口关闭后开发进程未退出。' }
 } finally {
   if (Get-Process -Id $qaProcess.Id -ErrorAction SilentlyContinue) { Stop-Process -Id $qaProcess.Id }
 }
