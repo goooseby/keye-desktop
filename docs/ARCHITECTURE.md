@@ -2,7 +2,7 @@
 
 ## 总体结构
 
-v0.5.0 的桌面入口为 `workbench.html`，界面位于 `public/workbench/`，通过 `src/workbench.ts` 与 `src/desktop.ts` 连接 Tauri。新旧界面共用 `public/shared/page-images.js` 图片缓存。旧 `index.html` 和 `public/ui/` 保留用于回归；下文原界面模块约定仍适用于这部分代码。业务接入见 [WORKBENCH-INTEGRATION.md](WORKBENCH-INTEGRATION.md)，改名兼容边界见 [MIGRATION.md](MIGRATION.md)。
+v0.5.1 的桌面入口为 `workbench.html`，界面位于 `public/workbench/`，通过 `src/workbench.ts` 与 `src/desktop.ts` 连接 Tauri。新旧界面共用 `public/shared/page-images.js` 图片缓存。旧 `index.html` 和 `public/ui/` 保留用于回归；下文原界面模块约定仍适用于这部分代码。业务接入见 [WORKBENCH-INTEGRATION.md](WORKBENCH-INTEGRATION.md)，改名兼容边界见 [MIGRATION.md](MIGRATION.md)。
 
 ```text
 HTML/CSS/JS 界面 + TypeScript 命令桥接（WebView2）
