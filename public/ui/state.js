@@ -12,7 +12,7 @@ const view={page:'library',filter:'all',search:'',sort:'recent',materialId:null,
   currentPage:1,undo:[],scanSelected:new Set(),loggedIn:false,scanned:false,scanning:false,taskFilter:'all',
   scanStart:dateString(weekAgo),scanEnd:dateString(today),directExport:false,saving:false,
   selectionAnchor:null,pageShiftPending:false,
-  courseId:null,courseSelected:new Set(),courseFilter:'all',courseFrom:'',courseTo:'',scanExpanded:new Set(),sessionMenuId:null};
+  reviewIds:[],courseId:null,courseSelected:new Set(),courseFilter:'all',courseFrom:'',courseTo:'',scanExpanded:new Set(),sessionMenuId:null};
 const main=document.querySelector('#main'),modal=document.querySelector('#modal');
 const $=selector=>document.querySelector(selector);
 const material=()=>state.materials.find(m=>m.id===view.materialId);
@@ -31,5 +31,7 @@ const reviewed=m=>m.reviewRevision===m.revision;
 const courseById=id=>(state.courseLibrary||[]).find(c=>c.id===id)||{id:'unfiled',title:'未归类',term:''};
 const sessions=id=>activeMaterials().filter(m=>(m.courseId||'unfiled')===id).sort((a,b)=>a.day.localeCompare(b.day)||String(a.lectureId||'').localeCompare(String(b.lectureId||''),undefined,{numeric:true})||a.id.localeCompare(b.id));
 const exportBadge=m=>`<span class="badge ${m.exported?(m.exportRevision===m.revision?'exported':'changed'):'pending'}">${m.exported?(m.exportRevision===m.revision?'已导出':'修改后待导出'):'未导出'}</span>`;
-const queueMaterials=()=> (state.reviewQueue||[]).map(id=>activeMaterials().find(m=>m.id===id)).filter(Boolean);
+// 连续整理只属于本次明确开始的操作，不从持久化快照恢复。
+const queueMaterials=()=>view.reviewIds.map(id=>activeMaterials().find(m=>m.id===id)).filter(Boolean);
+const reviewContext=m=>{const items=queueMaterials(),index=items.findIndex(item=>item.id===m?.id);return {active:index>=0,next:index>=0?items[index+1]:null};};
 

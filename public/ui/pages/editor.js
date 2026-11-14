@@ -6,11 +6,12 @@ function renderPageEditor(){
   const m=material();if(!m)return navigate('library');
   const visible=Array.from({length:m.pages},(_,i)=>i+1).filter(p=>view.pageFilter==='all'||!m.excluded.includes(p));
   const selectable=visible.filter(p=>!missingPage(m,p));
-  main.innerHTML=`<button class="back-button" data-nav="library">${icon('left')}返回资料库</button><div class="page-heading editor-heading"><div><h1>${esc(m.title)} <span style="font-weight:350;color:#adb5ac">/</span> ${esc(m.topic)}</h1><p class="subtitle"><span>${m.day}</span><span>·</span><span>${m.pages} 页原始页面</span><span>·</span>${badge(m)}</p></div><div class="actions"><span class="saved-label">${icon('check')}${view.saving?'正在保存…':'更改已保存'}</span><button data-action="quick-export" ${view.saving||m.pages===m.excluded.length?'disabled':''}>${icon('export')}快速导出</button><button class="primary" data-action="export" ${view.saving||m.pages===m.excluded.length?'disabled':''}>另存为…</button></div></div>
-    <div class="editor-toolbar"><div class="segmented"><button data-page-filter="all" class="${view.pageFilter==='all'?'active':''}">全部页面</button><button data-page-filter="kept" class="${view.pageFilter==='kept'?'active':''}">仅保留页</button></div><span class="separator"></span><button data-action="select-all-pages">${view.selected.size===selectable.length&&selectable.length?'取消全选':'全选'}</button><button data-action="range">选择范围</button><button data-action="exclude" ${!view.selected.size?'disabled':''}>排除</button><button data-action="restore" ${!view.selected.size?'disabled':''}>恢复</button><span class="separator"></span><button data-action="undo" ${!view.undo.length?'disabled':''} title="撤销上次排除或恢复">${icon('undo')}撤销</button><span class="selected-label">已选中 ${view.selected.size} 页</span></div>
+  const review=reviewContext(m),done=reviewed(m);
+  const completeLabel=review.active?(review.next?'完成并继续':'完成并返回'):(done?'已整理':'完成整理');
+  main.innerHTML=`${pageBreadcrumb([{label:'资料库',page:'library'},{label:courseById(m.courseId).title,page:'course/'+(m.courseId||'unfiled')},{label:m.topic||m.title}])}<div class="page-heading editor-heading"><div><h1>${esc(m.title)} <span style="font-weight:350;color:#adb5ac">/</span> ${esc(m.topic)}</h1><p class="subtitle"><span>${m.day}</span><span>·</span><span>${m.pages} 页原始页面</span><span>·</span>${badge(m)}</p></div><div class="actions"><span class="saved-label">${icon('check')}${view.saving?'正在保存…':'更改已保存'}</span><button data-action="quick-export" ${view.saving||m.pages===m.excluded.length?'disabled':''}>${icon('export')}快速导出</button><button class="primary" data-action="export" ${view.saving||m.pages===m.excluded.length?'disabled':''}>另存为…</button></div></div>
+    <div class="editor-toolbar"><div class="segmented"><button data-page-filter="all" class="${view.pageFilter==='all'?'active':''}">全部页面</button><button data-page-filter="kept" class="${view.pageFilter==='kept'?'active':''}">仅保留页</button></div><span class="separator"></span><button data-action="select-all-pages">${view.selected.size===selectable.length&&selectable.length?'取消全选':'全选'}</button><button data-action="range">选择范围</button><button data-action="exclude" ${!view.selected.size?'disabled':''}>排除</button><button data-action="restore" ${!view.selected.size?'disabled':''}>恢复</button><span class="separator"></span><button data-action="undo" ${!view.undo.length?'disabled':''} title="撤销上次排除或恢复">${icon('undo')}撤销</button><div class="editor-toolbar-end"><span class="selected-label">已选中 ${view.selected.size} 页</span><button class="${done&&!review.active?'secondary':'primary'}" data-action="complete-review" ${view.saving||done&&!review.active?'disabled':''}>${icon('check')}${completeLabel}</button></div></div>
     <div class="editor-layout"><section><div class="pages-grid">${visible.map(p=>`<article class="page-tile ${m.excluded.includes(p)?'excluded':''} ${view.selected.has(p)?'selected':''} ${view.currentPage===p?'current':''}" data-page-tile="${p}"><label class="page-check"><input type="checkbox" data-page-check="${p}" aria-label="选中第 ${p} 页" ${missingPage(m,p)?'disabled':''} ${view.selected.has(p)?'checked':''}></label><div class="page-art" tabindex="0" role="button" aria-label="预览第 ${p} 页，双击放大" data-preview="${p}">${slide(m,p,true)}</div><div class="page-caption"><strong>${String(p).padStart(2,'0')}</strong>${cropOf(m,p)?`<span class="crop-flag" title="已裁剪">${icon('crop')}已裁剪</span>`:''}<button data-toggle-page="${p}" ${missingPage(m,p)?'disabled':''}>${missingPage(m,p)?'此页缺失':m.excluded.includes(p)?'恢复此页':'排除此页'}</button></div></article>`).join('')}</div>${!visible.length?empty('没有保留的页面','切换到全部页面，可以恢复之前排除的内容。','<button data-page-filter="all">查看全部页面</button>'):''}</section>
-    <aside class="preview-panel"><div class="preview-title">页面预览 <span>原始页 ${view.currentPage} / ${m.pages}${cropOf(m,view.currentPage)?' · 已裁剪':''}</span><button class="icon-button" data-action="fullscreen" title="放大页面" aria-label="放大页面">${icon('expand')}</button></div><div class="large-art" data-action="fullscreen"><canvas class="slide preview-canvas" role="img"></canvas></div><div class="preview-controls"><button class="icon-button" data-action="previous" ${stepTarget(-1)===null?'disabled':''} aria-label="上一页">${icon('left')}</button><span>第 ${view.currentPage} 页</span><button class="icon-button" data-action="next" ${stepTarget(1)===null?'disabled':''} aria-label="下一页">${icon('right')}</button></div><div class="preview-detail">${previewDetailHtml(m,view.currentPage)}</div><div class="keyboard-note"><kbd>←</kbd> <kbd>→</kbd> 翻页${view.pageFilter==='kept'?'（跳过已排除页）':''}　<kbd>E</kbd> 排除 / 恢复<br><kbd>Ctrl</kbd> + <kbd>Z</kbd> 撤销　双击缩略图放大后可裁剪</div></aside></div>
-    <div class="editor-summary"><span>共 ${m.pages} 页 <span style="color:#c4cbc4">/</span> <strong>保留 ${m.pages-m.excluded.length} 页</strong> <span style="color:#c4cbc4">/</span> 排除 ${m.excluded.length} 页${cropCount(m)?` <span style="color:#c4cbc4">/</span> 裁剪 ${cropCount(m)} 页`:''}</span><span>排除不会删除原始图片，裁剪也保留原始画面</span></div>`;
+    <aside class="preview-panel"><div class="preview-title">页面预览 <span>原始页 ${view.currentPage} / ${m.pages}${cropOf(m,view.currentPage)?' · 已裁剪':''}</span><button class="icon-button" data-action="fullscreen" title="放大页面" aria-label="放大页面">${icon('expand')}</button></div><div class="large-art" data-action="fullscreen"><canvas class="slide preview-canvas" role="img"></canvas></div><div class="preview-controls"><button class="icon-button" data-action="previous" ${stepTarget(-1)===null?'disabled':''} aria-label="上一页">${icon('left')}</button><span>第 ${view.currentPage} 页</span><button class="icon-button" data-action="next" ${stepTarget(1)===null?'disabled':''} aria-label="下一页">${icon('right')}</button></div><div class="preview-detail">${previewDetailHtml(m,view.currentPage)}</div><div class="keyboard-note"><kbd>←</kbd> <kbd>→</kbd> 翻页${view.pageFilter==='kept'?'（跳过已排除页）':''}　<kbd>E</kbd> 排除 / 恢复<br><kbd>Ctrl</kbd> + <kbd>Z</kbd> 撤销　双击缩略图放大后可裁剪</div></aside></div>`;
   updateSlideSource(main.querySelector('.large-art'),m,view.currentPage);
   preloadSlides(m,[view.currentPage+1,view.currentPage-1]);
 }
@@ -22,16 +23,21 @@ function previewDetailHtml(m,page){
   return `<h3>${excluded?'此页已排除':crop?'此页已裁剪':'此页将保留在 PDF 中'}</h3><p>${copy}</p><div class="preview-detail-actions"><button class="${excluded?'secondary':''}" data-toggle-page="${page}">${excluded?icon('undo')+'恢复此页':icon('close')+'排除此页'}</button>${crop?`<button data-action="crop-reset">${icon('crop')}还原裁剪</button>`:''}</div>`;
 }
 
-function renderEditor(){
-  renderPageEditor();const m=material();if(!m)return;
-  const c=courseById(m.courseId),queue=queueMaterials();
-  const items=queue.some(x=>x.id===m.id)?queue:sessions(m.courseId||'unfiled');
-  const index=items.findIndex(x=>x.id===m.id);
-  main.querySelector('.back-button').dataset.nav='course/'+(m.courseId||'unfiled');
-  main.querySelector('.back-button').innerHTML=icon('left')+'返回 '+esc(c.title);
-  const completion=document.createElement('div');completion.className='review-completion';
-  completion.innerHTML=`<span>${reviewed(m)?'已确认这份课件整理完成':'确认本次课的页面后，再继续下一份。'} · ${exportBadge(m)}</span><button class="primary" data-course-action="complete" ${view.saving?'disabled':''}>${index<items.length-1?'标记已整理，处理下一份':'标记已整理，返回课程'}</button>`;
-  main.append(completion);
+function renderEditor(){renderPageEditor();}
+
+async function completeReview(){
+  const m=material();if(!m||view.saving)return;
+  const review=reviewContext(m);
+  if(reviewed(m)&&!review.active)return;
+  view.saving=true;renderEditor();
+  try{
+    if(!reviewed(m))await call('reviewed',{id:m.id,revision:m.revision});
+  }finally{view.saving=false;render();}
+  // 保存失败会直接抛出，不改变队列或页面；成功后再读取仍有效的下一份。
+  if(!review.active)return toast('已标记为已整理');
+  const next=reviewContext(m).next;
+  if(next)openMaterial(next.id,{review:true});
+  else{view.reviewIds=[];navigate('course/'+(m.courseId||'unfiled'));toast('本次整理已完成');}
 }
 
 let lastPageTimer=null;
@@ -140,6 +146,7 @@ registerDataHandlers({
   togglePage:element=>{const page=Number(element.dataset.togglePage);return mutatePages([page],!material().excluded.includes(page));},
 });
 registerActions({
+  'complete-review':()=>completeReview(),
   'select-all-pages':()=>{const m=material(),pages=pageList().filter(p=>!missingPage(m,p));view.selected=view.selected.size===pages.length?new Set():new Set(pages);view.selectionAnchor=null;syncSelectionUi();},
   range:()=>showModal('选择连续页面',`<p>使用原始页码选择，再批量排除或恢复。</p><div class="range-fields"><label class="field">从第几页<input type="number" id="range-from" min="1" max="${material().pages}" value="${view.currentPage}"></label><label class="field">到第几页<input type="number" id="range-to" min="1" max="${material().pages}" value="${Math.min(material().pages,view.currentPage+3)}"></label></div>`, '<button data-action="close-modal">取消</button><button class="primary" data-action="confirm-range">选中这些页面</button>'),
   'confirm-range':()=>{const from=Number($('#range-from').value),to=Number($('#range-to').value);if(!Number.isInteger(from)||!Number.isInteger(to)||from<1||to>material().pages||from>to)return toast('请输入有效的页面范围。');view.pageFilter='all';view.selected=new Set(Array.from({length:to-from+1},(_,i)=>i+from).filter(p=>!missingPage(material(),p)));view.selectionAnchor=to;closeModal();renderEditor();},

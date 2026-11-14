@@ -2,6 +2,8 @@
 
 ## 总体结构
 
+v0.5.0 的桌面入口为 `workbench.html`，界面位于 `public/workbench/`，通过 `src/workbench.ts` 与 `src/desktop.ts` 连接 Tauri。新旧界面共用 `public/shared/page-images.js` 图片缓存。旧 `index.html` 和 `public/ui/` 保留用于回归；下文原界面模块约定仍适用于这部分代码。业务接入见 [WORKBENCH-INTEGRATION.md](WORKBENCH-INTEGRATION.md)，改名兼容边界见 [MIGRATION.md](MIGRATION.md)。
+
 ```text
 HTML/CSS/JS 界面 + TypeScript 命令桥接（WebView2）
        │ Tauri invoke / 事件
@@ -37,6 +39,10 @@ public/ui/
 - **状态只有一个来源**：视图状态集中在 `state.js` 的 `view`，派生口径（如 `reviewed`、`exportBadge`）也只写在 `state.js`；页面不得自建平行的判断标准。资料库的 `filter` 只有 `all` / `pending` / `trash` 三个合法值，进入页面时归一化，不保留无人渲染的中间值——回收站是同一套列表的一个状态，不是另一套页面。
 - **加载期不要调用后加载文件里的函数**：函数声明会提升，但跨文件的绑定要到对应脚本执行之后才存在；页面模块只在注册表达式和事件回调里引用其他模块，外壳级接线（如窗口按钮）留在 `app.js`。
 - **样式分三层**：`styles.css` 基础、`refresh.css` 细化、`library-home.css` 资料库页局部；新增样式放进已有层，不再叠加新的覆盖层。
+
+界面导航由侧栏和正文页头承担：一级页面只显示标题及本页操作，不设全局内容顶栏；课程和整理页通过 `dom.js` 的 `pageBreadcrumb` 输出可点击的上级路径，统一走 `data-nav` 和外壳保存保护。使用帮助通过侧栏的 `show-help` 动作打开，学校登录状态留在获取课件页。窗口标题栏独立负责拖动和窗口控制。
+
+整理完成控件位于吸顶工具栏右侧；普通打开课件时只标记完成并停留，只有课程页明确发起的批量整理才推进下一份、最后返回课程。当前批量范围使用 `view.reviewIds`，退出整理页或普通打开课件时清空，不从旧的持久化 `reviewQueue` 恢复。按钮文案与完成行为共用 `reviewContext`，保存失败不推进；整理状态继续以 `reviewRevision` 与 `revision` 判断，独立于导出状态。
 
 ## 登录与网络
 

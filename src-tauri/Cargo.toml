@@ -1,8 +1,8 @@
 [package]
 name = "keye-desktop"
-version = "0.2.1"
-description = "课页桌面应用"
-authors = ["课页项目"]
+version = "0.5.0"
+description = "华工课栈桌面应用"
+authors = ["华工课栈项目"]
 license = ""
 repository = "https://github.com/goooseby/keye-desktop"
 edition = "2021"

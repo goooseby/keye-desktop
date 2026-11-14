@@ -3,6 +3,7 @@ mod library;
 mod pdf;
 mod platform;
 mod updates;
+mod announcements;
 
 use std::sync::{Arc,RwLock};
 use tauri::Manager;
@@ -22,7 +23,9 @@ pub fn run() {
                 .and_then(|v|v["libraryDir"].as_str().map(std::path::PathBuf::from))
                 .unwrap_or_else(||root.clone());
             let library = library::Library::open(selected).map_err(std::io::Error::other)?;
-            app.manage(commands::AppState { library: Arc::new(RwLock::new(Arc::new(library))), base:root, runtime: Arc::new(std::sync::Mutex::new(commands::Runtime::default())), import_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)), download_gate: Arc::new((std::sync::Mutex::new(0),std::sync::Condvar::new())), download_enqueue: std::sync::Mutex::new(()), export_lock: std::sync::Mutex::new(()) });
+            let library=Arc::new(library);
+            app.manage(commands::AppState { library: Arc::new(RwLock::new(library.clone())), base:root, runtime: Arc::new(std::sync::Mutex::new(commands::Runtime::default())), import_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)), download_gate: Arc::new((std::sync::Mutex::new(0),std::sync::Condvar::new())), download_enqueue: std::sync::Mutex::new(()), export_lock: std::sync::Mutex::new(()) });
+            commands::resume_course_deletions(app.handle(),library).map_err(std::io::Error::other)?;
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("keye-media", |ctx, request, responder| {
@@ -45,5 +48,5 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![commands::request])
         .run(tauri::generate_context!())
-        .expect("无法启动课页");
+        .expect("无法启动华工课栈");
 }

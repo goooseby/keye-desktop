@@ -1,4 +1,4 @@
-/* 课页视觉优化原型：保留现有结构和动线，只加强清晰度、层级与可点击性。 */
+/* 华工课栈视觉优化原型：保留现有结构和动线，只加强清晰度、层级与可点击性。 */
 :root{
   --bg:#f3f6f4;
   --surface:#ffffff;
@@ -115,18 +115,30 @@ svg.icon{width:20px;height:20px;stroke-width:1.8}
 .nav-item.active{background:#dfede7;color:#0f634e;font-weight:700}
 .nav-item.active svg{stroke-width:2.1}
 .nav-item .nav-count{font-size:11px;color:#0f634e;background:#c9e2d7}
-.storage-card{padding:16px 14px;background:#fafcfb;border-color:#d3ddd8}
-.storage-card>div:first-child{font-size:12px;color:#263a33}
-.storage-card p{font-size:12px;line-height:1.7;color:#596a64}
-.storage-card small{font-size:10px;color:#66766f}
+
+
+
+
 .prototype-label{font-size:10px;color:#677771}
 
-.topbar{height:68px;padding:0 36px;border-color:#d5ded9}
-.topbar #breadcrumb{font-size:12px;color:#52635d}
-.topbar #breadcrumb span{color:#9aa7a2}
-.demo-tag{font-size:11px;color:#5f7069;background:#f2f5f3;border:1px solid #dbe2de;border-radius:999px;padding:5px 10px;letter-spacing:.2px}
-.avatar{width:32px;height:32px;font-size:12px;color:#506058;background:#eef1ed;border-color:#dce2dd}
 
+
+
+
+
+
+/* 页面路径属于正文，不再为一级页面保留全局顶栏。 */
+.page-breadcrumb{margin:0 0 18px;font-size:12px;color:#667970}
+.page-breadcrumb ol{display:flex;align-items:center;min-width:0;gap:8px;list-style:none;margin:0;padding:0}
+.page-breadcrumb li{display:flex;align-items:center;gap:8px;min-width:0;max-width:40%}
+.page-breadcrumb li+li::before{content:'/';color:#9aa7a2;flex:none}
+.page-breadcrumb li:last-child{flex:1;max-width:none}
+.page-breadcrumb button,.page-breadcrumb [aria-current]{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.page-breadcrumb button{border:0;border-radius:4px;background:transparent;padding:4px 2px;font-size:inherit;color:#176e58;justify-content:flex-start}
+.page-breadcrumb button:hover:not(:disabled){background:#e4eee9;color:#104f3e}
+.page-breadcrumb [aria-current]{padding:4px 2px}
+.page-heading>div:first-child{min-width:0}
+.editor-heading h1{overflow-wrap:anywhere}
 main{padding:36px 38px}
 .page-heading{margin-bottom:29px}
 .eyebrow{font-size:11px;color:#176e58;letter-spacing:2.1px;font-weight:750;margin-bottom:9px}
@@ -200,15 +212,20 @@ td .course-title{font-weight:650;color:#172722}
 .session-menu button.danger{color:#963e34}
 .session-menu svg{width:18px;height:18px}
 .course-controls{font-size:13px;color:#52645d;gap:11px}
-.course-batch,.review-completion{font-size:13px;border-color:#c7ddd2;background:#e5f1eb;padding:17px 19px;border-radius:10px}
+.course-batch{font-size:13px;border-color:#c7ddd2;background:#e5f1eb;padding:17px 19px;border-radius:10px}
 .course-batch>span small{font-size:11px;color:#53675e}
 
 .editor-heading h1{font-size:25px}
 .editor-heading .subtitle{font-size:12px}
-.back-button{font-size:12px;color:#52675e;font-weight:600}
+
 .editor-toolbar{position:sticky;top:0;z-index:20;background:#fff;border-color:#cfd9d4;border-radius:10px;padding:12px 14px;box-shadow:0 4px 14px rgba(25,55,44,.07)}
 .editor-toolbar button,.segmented button{font-size:12px;min-height:34px}
-.editor-toolbar .selected-label{font-size:12px;color:#52655d;font-weight:600}
+.editor-toolbar-end{display:flex;align-items:center;gap:16px;margin-left:auto;flex-shrink:0}
+.editor-toolbar .selected-label{margin:0;font-size:12px;color:#52655d;font-weight:600;white-space:nowrap}
+.editor-toolbar-end>button{white-space:nowrap}
+.editor-toolbar-end>button.secondary:disabled{opacity:1;color:#47715e}
+@media(max-width:1000px){.editor-toolbar-end{gap:10px}}
+@media(max-width:650px){.editor-toolbar-end{width:100%;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--line)}}
 .segmented{background:#e8eeeb}
 .segmented button.active{color:#154f3f;font-weight:650}
 .page-tile{border-color:#cad5d0;border-radius:9px;box-shadow:0 2px 8px rgba(29,55,46,.04)}
@@ -226,7 +243,7 @@ td .course-title{font-weight:650;color:#172722}
 .preview-detail>button{font-size:12px}
 .keyboard-note{font-size:11px;color:#63736d}
 kbd{font-size:10px;color:#4e6158;border-color:#ccd7d1}
-.editor-summary{font-size:12px;color:#53665d}
+
 .saved-label{font-size:11px;color:#47715e}
 
 .task-list{gap:14px}
@@ -329,10 +346,11 @@ img.slide[data-crop]:not([data-crop-ready="1"]){visibility:hidden}
 }
 @media(max-width:1000px){
   :root{font-size:14px}
-  .topbar{padding:0 25px}
+
   .editor-layout{grid-template-columns:1fr}
   .preview-panel{display:none}
-  .page-heading{align-items:flex-start}
+  .page-heading{align-items:flex-start;flex-wrap:wrap}
+  .page-heading>.actions{max-width:100%}
   .page-heading>.actions{flex-wrap:wrap;justify-content:flex-end}
   .full-nav{gap:6px}
   .full-nav .nav-crop button,.full-nav .nav-exclude{font-size:11px;padding:7px 9px}

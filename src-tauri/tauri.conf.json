@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "课页",
-  "version": "0.2.1",
+  "productName": "华工课栈",
+  "version": "0.5.0",
   "identifier": "io.github.goooseby.keye.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "课页 · 个人课件资料库",
+        "title": "华工课栈 · 个人课件资料库",
+        "url": "workbench.html",
         "width": 1100,
         "height": 740,
         "minWidth": 900,

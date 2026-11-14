@@ -34,3 +34,8 @@ const icons = {
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.file}</svg>`;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function empty(title,description,action=''){return `<div class="empty">${icon('folder')}<h2>${title}</h2><p>${description}</p>${action}</div>`;}
+
+// 深层页面的上级入口共用 data-nav，沿用外壳的保存保护和路由。
+function pageBreadcrumb(items){
+  return `<nav class="page-breadcrumb" aria-label="页面路径"><ol>${items.map((item,index)=>`<li>${index<items.length-1?`<button type="button" data-nav="${esc(item.page)}" title="${esc(item.label)}">${esc(item.label)}</button>`:`<span aria-current="page" title="${esc(item.label)}">${esc(item.label)}</span>`}</li>`).join('')}</ol></nav>`;
+}

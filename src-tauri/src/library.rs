@@ -14,6 +14,15 @@ fn err(e: impl std::fmt::Display) -> String { e.to_string() }
 fn now() -> u128 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() }
 fn id() -> String { Uuid::new_v4().simple().to_string() }
 fn round6(v: f64) -> f64 { (v*1e6).round()/1e6 }
+pub const COURSE_DELETE_GRACE_MS: u64 = 8_000;
+fn pending_course_deletions(db: &Connection) -> Result<Vec<Value>, String> {
+    let raw: Option<String> = db.query_row("SELECT value FROM settings WHERE key='pendingCourseDeletions'", [], |row| row.get(0)).optional().map_err(err)?;
+    raw.map(|value| serde_json::from_str(&value).map_err(err)).unwrap_or_else(|| Ok(Vec::new()))
+}
+fn save_pending_course_deletions(db: &Connection, pending: &[Value]) -> Result<(), String> {
+    db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('pendingCourseDeletions',?1)", [serde_json::to_string(pending).map_err(err)?]).map_err(err)?;
+    Ok(())
+}
 // Compact only explicit download holes; preserve every real file and its edits.
 fn compact_download_pages(m: &mut Value) -> bool {
     let Some(files)=m["files"].as_array() else{return false;};
@@ -74,7 +83,7 @@ impl Library {
         let db = library.db()?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS materials(id TEXT PRIMARY KEY, source_key TEXT UNIQUE, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS courses(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT NOT NULL);").map_err(err)?;
         let version:i64=db.query_row("PRAGMA user_version",[],|r|r.get(0)).map_err(err)?;
-        if version>1{return Err("资料库由更新的课页版本创建，当前版本无法打开。".into());}
+        if version>1{return Err("资料库由更新的华工课栈版本创建，当前版本无法打开。".into());}
         if version==0{db.execute_batch("PRAGMA user_version=1;").map_err(err)?;}
         drop(db);
         let mut db=library.db()?;
@@ -132,27 +141,112 @@ impl Library {
         tx.commit().map_err(err)
     }
     pub fn update_material(&self, mid: &str, changes: &Value) -> Result<Value, String> {
-        let mut m = self.get_material(mid)?;
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        let raw: String = tx.query_row("SELECT data FROM materials WHERE id=?1", [mid], |row| row.get(0)).map_err(|_| "未找到这份课件。".to_string())?;
+        let mut m: Value = serde_json::from_str(&raw).map_err(err)?;
         for (key,value) in changes.as_object().ok_or("更新内容无效。")? { m[key] = value.clone(); }
-        self.put_material(&m)?;
+        tx.execute("UPDATE materials SET data=?1,source_key=?2 WHERE id=?3", params![m.to_string(),m["sourceKey"].as_str(),mid]).map_err(err)?;
+        tx.commit().map_err(err)?;
         Ok(m)
     }
     pub fn save_course(&self, input: &Value) -> Result<Value, String> {
         let title = input["title"].as_str().unwrap_or("").trim();
         if title.is_empty() { return Err("请填写课程名称。".into()); }
         let cid = input["id"].as_str().filter(|v| !v.is_empty()).map(str::to_owned).unwrap_or_else(id);
-        let existing = self.courses()?.into_iter().find(|c| c["id"] == cid);
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        if pending_course_deletions(&tx)?.iter().any(|operation| operation["courseId"] == cid) { return Err("课程待删除，请先撤销删除。".into()); }
+        let previous: Option<String> = tx.query_row("SELECT data FROM courses WHERE id=?1", [&cid], |row| row.get(0)).optional().map_err(err)?;
+        let existing: Option<Value> = previous.map(|raw|serde_json::from_str(&raw).map_err(err)).transpose()?;
+        if input["requireExisting"] == true && existing.is_none() { return Err("课程已删除，请重新打开课程列表。".into()); }
         let c = json!({"id":cid,"title":title.chars().take(120).collect::<String>(),"term":input["term"].as_str().unwrap_or("").trim().chars().take(80).collect::<String>(),
             "coverStyle":input["coverStyle"].as_str().or_else(||existing.as_ref().and_then(|c|c["coverStyle"].as_str())).unwrap_or(""),
             "coverPalette":input["coverPalette"].as_str().or_else(||existing.as_ref().and_then(|c|c["coverPalette"].as_str())).unwrap_or("")});
-        self.db()?.execute("INSERT OR REPLACE INTO courses(id,data) VALUES(?1,?2)", params![cid,c.to_string()]).map_err(err)?;
+        tx.execute("INSERT OR REPLACE INTO courses(id,data) VALUES(?1,?2)", params![cid,c.to_string()]).map_err(err)?;
+        tx.commit().map_err(err)?;
         Ok(c)
+    }
+    pub fn pending_course_deletions(&self) -> Result<Vec<Value>, String> { pending_course_deletions(&self.db()?) }
+    pub fn assign_materials(&self, ids: &[Value], course_id: Option<&str>) -> Result<(), String> {
+        let mut db=self.db()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        if let Some(cid)=course_id {
+            let exists: bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM courses WHERE id=?1)",[cid],|row|row.get(0)).map_err(err)?;
+            if !exists {return Err("课程不存在。".into());}
+            if pending_course_deletions(&tx)?.iter().any(|op|op["courseId"]==cid){return Err("课程待删除，请先撤销删除。".into());}
+        }
+        for value in ids {
+            let mid=value.as_str().ok_or("课件编号无效。")?;
+            let raw:String=tx.query_row("SELECT data FROM materials WHERE id=?1",[mid],|row|row.get(0)).map_err(|_|"课件不存在。")?;
+            let mut material:Value=serde_json::from_str(&raw).map_err(err)?;
+            material["courseId"]=json!(course_id);
+            tx.execute("UPDATE materials SET data=?1 WHERE id=?2",params![material.to_string(),mid]).map_err(err)?;
+        }
+        tx.commit().map_err(err)
+    }
+    pub fn schedule_course_deletion(&self, cid: &str, mode: &str, at_ms: u128) -> Result<Value, String> {
+        if cid=="unfiled" || !matches!(mode,"unfiled"|"trash"){return Err("课程删除选项无效。".into());}
+        let mut db=self.db()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        let raw:String=tx.query_row("SELECT data FROM courses WHERE id=?1",[cid],|row|row.get(0)).map_err(|_|"课程不存在。")?;
+        let course:Value=serde_json::from_str(&raw).map_err(err)?;
+        let mut pending=pending_course_deletions(&tx)?;
+        if pending.iter().any(|operation|operation["courseId"]==cid){return Err("该课程已在等待删除。".into());}
+        let mut statement=tx.prepare("SELECT data FROM tasks").map_err(err)?;
+        for row in statement.query_map([],|row|row.get::<_,String>(0)).map_err(err)? {
+            let task:Value=serde_json::from_str(&row.map_err(err)?).map_err(err)?;
+            if matches!(task["status"].as_str(),Some("queued"|"running"|"paused"))&&(task["courseId"]==cid||task["course"]["groupId"]==cid){return Err("该课程还有获取或导入任务，请完成或取消后再删除。".into());}
+        }
+        drop(statement);
+        let operation=json!({"id":id(),"courseId":cid,"title":course["title"],"mode":mode,"expiresAt":at_ms+COURSE_DELETE_GRACE_MS as u128});
+        pending.push(operation.clone());save_pending_course_deletions(&tx,&pending)?;
+        tx.commit().map_err(err)?;
+        Ok(operation)
+    }
+    pub fn cancel_course_deletion(&self, operation_id: &str, _at_ms: u128) -> Result<(), String> {
+        let mut db=self.db()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        let mut pending=pending_course_deletions(&tx)?;
+        let index=pending.iter().position(|operation|operation["id"]==operation_id).ok_or("删除已完成，撤销期限已结束。")?;
+        // Cancellation and finalization serialize on this transaction. An entry
+        // still present can be cancelled even if a busy disk delayed its worker.
+        pending.remove(index);save_pending_course_deletions(&tx,&pending)?;
+        tx.commit().map_err(err)
+    }
+    pub fn commit_due_course_deletions(&self, at_ms: u128) -> Result<Vec<Value>, String> {
+        let mut db=self.db()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+        let pending=pending_course_deletions(&tx)?;
+        let (due,remaining):(Vec<_>,Vec<_>)=pending.into_iter().partition(|op|op["expiresAt"].as_u64().unwrap_or(u64::MAX) as u128<=at_ms);
+        if due.is_empty(){return Ok(Vec::new());}
+        let mut statement=tx.prepare("SELECT id,data FROM materials").map_err(err)?;
+        let records=statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?))).map_err(err)?.collect::<Result<Vec<_>,_>>().map_err(err)?;
+        drop(statement);
+        for operation in &due {
+            let cid=operation["courseId"].as_str().ok_or("待删除课程记录无效。")?;
+            let mode=operation["mode"].as_str().ok_or("待删除课程记录无效。")?;
+            if !matches!(mode,"unfiled"|"trash"){return Err("待删除课程记录无效。".into());}
+            for (mid,raw) in &records {
+                let mut material:Value=serde_json::from_str(raw).map_err(err)?;
+                if material["courseId"]!=cid {continue;}
+                material["courseId"]=Value::Null;
+                if mode=="trash" {material["deleted"]=json!(true);}
+                material["touched"]=json!(at_ms);
+                tx.execute("UPDATE materials SET data=?1 WHERE id=?2",params![material.to_string(),mid]).map_err(err)?;
+            }
+            tx.execute("DELETE FROM courses WHERE id=?1",[cid]).map_err(err)?;
+        }
+        save_pending_course_deletions(&tx,&remaining)?;
+        tx.commit().map_err(err)?;
+        Ok(due)
     }
     pub fn page_state(&self, mid: &str, excluded: &Value, crops: &Value, revision: &Value) -> Result<(), String> {
         let mut db=self.db()?;
         let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
         let raw:String=tx.query_row("SELECT data FROM materials WHERE id=?1",[mid],|r|r.get(0)).map_err(|_|"未找到这份课件。".to_string())?;
         let mut m:Value=serde_json::from_str(&raw).map_err(err)?;
+        if m["deleted"]==true {return Err("请先从回收站恢复课件。".into());}
         if m["revision"] != *revision { return Err("课件已更新，请重新打开后再整理。".into()); }
         let pages = m["pages"].as_u64().unwrap_or(0);
         let mut selected: Vec<u64> = excluded.as_array().ok_or("页面范围无效。")?.iter().map(|v|v.as_u64().filter(|n|*n>=1 && *n<=pages).ok_or("页面范围无效。".to_string())).collect::<Result<_,_>>()?;
@@ -226,7 +320,7 @@ impl Library {
         let mut settings = self.setting("settings",json!({"exportMode":"review","exportDir":"","maxWorkers":2,"timeout":30,"retries":3,"sleepMs":100}))?;
         settings["maxWorkers"]=json!(settings["maxWorkers"].as_u64().unwrap_or(2).clamp(1,4));
         settings["libraryDir"] = json!(self.root.display().to_string());
-        Ok(json!({"materials":materials,"courseLibrary":self.courses()?,"reviewQueue":self.setting("reviewQueue",json!([]))?,"tasks":self.tasks()?,"settings":settings,
+        Ok(json!({"materials":materials,"courseLibrary":self.courses()?,"pendingCourseDeletions":self.pending_course_deletions()?,"reviewQueue":self.setting("reviewQueue",json!([]))?,"tasks":self.tasks()?,"settings":settings,
             "lastMaterial":self.setting("lastMaterial",Value::Null)?,"loggedIn":false,"courses":[],"scanned":false,"scanError":"","appVersion":env!("CARGO_PKG_VERSION"),"packaged":!cfg!(debug_assertions),"scanning":false}))
     }
     pub fn media_file(&self, mid: &str, page: usize, size: &str) -> Option<PathBuf> {
@@ -247,6 +341,109 @@ pub fn is_image(path:&Path)->bool {matches!(path.extension().and_then(|x|x.to_st
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn course_deletion_fixture() -> (PathBuf, Library, String) {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());
+        let lib=Library::open(root.clone()).unwrap();
+        lib.save_course(&json!({"id":"course-one","title":"测试课程","term":"测试学期"})).unwrap();
+        lib.save_course(&json!({"id":"course-two","title":"其他课程"})).unwrap();
+        let mid=id();
+        lib.put_material(&json!({"id":mid,"sourceKey":format!("local:{mid}"),"courseId":"course-one","pages":4,"excluded":[2],"crops":{"1":[0.1,0.1,0.8,0.7]},"revision":4,"reviewRevision":4,"exported":true,"exportRevision":4,"lastPage":1,"deleted":false,"files":[]})).unwrap();
+        fs::write(root.join("original-page.bin"),b"original stays").unwrap();
+        (root,lib,mid)
+    }
+    #[test]
+    fn course_deletion_waits_then_moves_materials_without_losing_edits() {
+        let (root,lib,mid)=course_deletion_fixture();
+        lib.schedule_course_deletion("course-one","unfiled",1000).unwrap();
+        assert!(lib.commit_due_course_deletions(8999).unwrap().is_empty());
+        assert_eq!(lib.get_material(&mid).unwrap()["courseId"],"course-one");
+        assert_eq!(lib.commit_due_course_deletions(9000).unwrap().len(),1);
+        assert!(!lib.courses().unwrap().iter().any(|course|course["id"]=="course-one"));
+        let m=lib.get_material(&mid).unwrap();
+        assert!(m["courseId"].is_null());assert_eq!(m["deleted"],false);
+        assert_eq!(m["excluded"],json!([2]));assert_eq!(m["crops"]["1"],json!([0.1,0.1,0.8,0.7]));assert_eq!(m["revision"],4);assert_eq!(m["exportRevision"],4);
+        assert!(root.join("original-page.bin").exists());
+        assert!(lib.commit_due_course_deletions(10000).unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn course_delete_undo_changes_no_material_data_and_survives_reopen() {
+        let (root,lib,mid)=course_deletion_fixture();let before=lib.get_material(&mid).unwrap();
+        let op=lib.schedule_course_deletion("course-one","trash",1000).unwrap();
+        let reopened=Library::open(root.clone()).unwrap();
+        assert_eq!(reopened.pending_course_deletions().unwrap().len(),1);
+        reopened.cancel_course_deletion(op["id"].as_str().unwrap(),2000).unwrap();
+        assert!(reopened.commit_due_course_deletions(20000).unwrap().is_empty());
+        assert_eq!(reopened.get_material(&mid).unwrap(),before);
+        assert!(reopened.courses().unwrap().iter().any(|course|course["id"]=="course-one"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn course_delete_trash_keeps_originals_and_excludes_deleted_materials_from_editing() {
+        let (root,lib,mid)=course_deletion_fixture();
+        lib.schedule_course_deletion("course-one","trash",1000).unwrap();
+        lib.page_state(&mid,&json!([1,2]),&json!({"1":[0.1,0.1,0.8,0.7]}),&json!(4)).unwrap();
+        lib.commit_due_course_deletions(9000).unwrap();let m=lib.get_material(&mid).unwrap();
+        assert_eq!(m["deleted"],true);assert!(m["courseId"].is_null());assert_eq!(m["revision"],5);
+        assert_eq!(m["excluded"],json!([1,2]));assert!(root.join("original-page.bin").exists());
+        assert!(lib.page_state(&mid,&json!([]),&json!({}),&json!(5)).is_err());
+        lib.update_material(&mid,&json!({"deleted":false})).unwrap();assert_eq!(lib.get_material(&mid).unwrap()["crops"],m["crops"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn pending_course_rejects_assignment_and_edit_but_other_courses_remain_usable() {
+        let (root,lib,mid)=course_deletion_fixture();
+        let op=lib.schedule_course_deletion("course-one","unfiled",1000).unwrap();
+        assert!(lib.assign_materials(&[json!(mid)],Some("course-one")).is_err());
+        assert!(lib.save_course(&json!({"id":"course-one","title":"覆盖名称","requireExisting":true})).is_err());
+        lib.assign_materials(&[json!(mid)],Some("course-two")).unwrap();
+        lib.cancel_course_deletion(op["id"].as_str().unwrap(),2000).unwrap();
+        assert_eq!(lib.get_material(&mid).unwrap()["courseId"],"course-two");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn course_delete_cannot_be_scheduled_twice_or_during_an_associated_download() {
+        let (root,lib,_)=course_deletion_fixture();
+        lib.put_task(&json!({"id":"running-job","status":"running","course":{"groupId":"course-one"}})).unwrap();
+        assert!(lib.schedule_course_deletion("course-one","trash",1000).is_err());
+        lib.put_task(&json!({"id":"running-job","status":"done","course":{"groupId":"course-one"}})).unwrap();
+        lib.schedule_course_deletion("course-one","trash",1000).unwrap();
+        assert!(lib.schedule_course_deletion("course-one","trash",1001).is_err());
+        assert!(lib.schedule_course_deletion("unfiled","trash",1001).is_err());
+        assert!(lib.schedule_course_deletion("course-two","erase",1001).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn multiple_course_deletions_commit_only_at_their_own_deadlines() {
+        let (root,lib,_)=course_deletion_fixture();
+        lib.schedule_course_deletion("course-one","unfiled",1000).unwrap();lib.schedule_course_deletion("course-two","trash",2000).unwrap();
+        let reopened=Library::open(root.clone()).unwrap();assert_eq!(reopened.commit_due_course_deletions(9000).unwrap().len(),1);
+        assert!(reopened.courses().unwrap().iter().any(|course|course["id"]=="course-two"));
+        assert_eq!(reopened.commit_due_course_deletions(10000).unwrap().len(),1);assert!(reopened.pending_course_deletions().unwrap().is_empty());
+        assert!(reopened.save_course(&json!({"id":"course-one","title":"过期编辑","requireExisting":true})).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn failed_course_finalization_rolls_back_and_still_allows_undo() {
+        let (root,lib,mid)=course_deletion_fixture();
+        let op=lib.schedule_course_deletion("course-one","trash",1000).unwrap();
+        lib.db().unwrap().execute("INSERT INTO materials(id,source_key,data) VALUES('invalid','invalid','not-json')",[]).unwrap();
+        assert!(lib.commit_due_course_deletions(9000).is_err());
+        assert_eq!(lib.get_material(&mid).unwrap()["courseId"],"course-one");assert_eq!(lib.get_material(&mid).unwrap()["deleted"],false);
+        lib.cancel_course_deletion(op["id"].as_str().unwrap(),10000).unwrap();assert!(lib.pending_course_deletions().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn concurrent_course_deletion_and_page_navigation_preserve_both_updates() {
+        let (root,lib,mid)=course_deletion_fixture();
+        lib.schedule_course_deletion("course-one","trash",1000).unwrap();
+        let lib=std::sync::Arc::new(lib);let barrier=std::sync::Arc::new(std::sync::Barrier::new(2));
+        let copy=lib.clone();let gate=barrier.clone();let id=mid.clone();
+        let navigation=std::thread::spawn(move||{gate.wait();copy.update_material(&id,&json!({"lastPage":3})).unwrap();});
+        barrier.wait();lib.commit_due_course_deletions(9000).unwrap();navigation.join().unwrap();
+        let m=lib.get_material(&mid).unwrap();assert_eq!(m["lastPage"],3);assert_eq!(m["deleted"],true);assert!(m["courseId"].is_null());
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn partial_download_compacts_pages_and_exports_all_real_pages(){
         let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.build/test-data").join(id());

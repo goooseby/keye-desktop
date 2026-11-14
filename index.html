@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>课页 · 个人课件资料库</title>
+  <title>华工课栈 · 个人课件资料库</title>
   <link rel="icon" type="image/svg+xml" href="/app-icon.svg">
   <link rel="stylesheet" href="/ui/styles.css">
   <link rel="stylesheet" href="/ui/refresh.css">
@@ -11,20 +11,19 @@
   <link rel="stylesheet" href="/ui/titlebar.css">
 </head>
 <body>
-  <div class="app-titlebar" data-tauri-drag-region="deep"><div class="app-titlebar-brand" data-tauri-drag-region><img src="/app-icon.svg" alt="" data-tauri-drag-region><span data-tauri-drag-region>课页</span></div><div class="app-titlebar-spacer" data-tauri-drag-region></div><div class="app-titlebar-controls"><button id="window-minimize" type="button" aria-label="最小化窗口" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button><button id="window-maximize" type="button" aria-label="最大化或还原窗口" title="最大化或还原"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button><button id="window-close" type="button" aria-label="关闭窗口" title="关闭"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div></div>
+  <div class="app-titlebar" data-tauri-drag-region="deep"><div class="app-titlebar-brand" data-tauri-drag-region><img src="/app-icon.svg" alt="" data-tauri-drag-region><span data-tauri-drag-region>华工课栈</span></div><div class="app-titlebar-spacer" data-tauri-drag-region></div><div class="app-titlebar-controls"><button id="window-minimize" type="button" aria-label="最小化窗口" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button><button id="window-maximize" type="button" aria-label="最大化或还原窗口" title="最大化或还原"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button><button id="window-close" type="button" aria-label="关闭窗口" title="关闭"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div></div>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand-block"><a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>课页</span></a><button id="app-update-badge" class="brand-update-badge" data-action="view-update" hidden aria-label="发现新版本，查看更新">NEW</button></div>
+      <div class="brand-block"><a class="brand" href="#library" aria-label="返回资料库"><img class="brand-mark" src="/app-icon.svg" alt=""><span>华工课栈</span></a><button id="app-update-badge" class="brand-update-badge" data-action="view-update" hidden aria-label="发现新版本，查看更新">NEW</button></div>
       <div class="workspace-label">我的工作空间</div>
       <nav id="nav" aria-label="主导航"></nav>
       <div class="sidebar-bottom">
-        <div class="storage-card"><div><span data-icon="database"></span><strong>本地资料库</strong><span class="local-dot"></span></div><p>原始页面安全保留，整理随时继续。</p><div class="storage-meter"><span></span></div><small>原始资料 · 保存在本机</small></div>
+        <button class="nav-item" data-action="show-help"><span data-icon="help"></span>使用帮助</button>
         <button class="nav-item" data-nav="settings"><span data-icon="settings"></span>设置</button>
         <div class="prototype-label"><span></span>个人课件资料库 <span class="prototype-version" id="app-version">v0.1.0</span></div>
       </div>
     </aside>
     <div class="workspace">
-      <header class="topbar"><div id="breadcrumb">工作空间 <span>/</span> 资料库</div><div class="topbar-right"><span class="demo-tag">本地资料库</span><button class="icon-button" id="help-button" title="查看使用说明" aria-label="查看使用说明" data-icon="help"></button><span class="avatar">我</span></div></header>
       <main id="main"></main>
       <footer id="statusbar"></footer>
     </div>
@@ -33,6 +32,7 @@
   <dialog id="modal"><div id="modal-content"></div></dialog>
   <script src="/ui/dom.js"></script>
   <script src="/ui/state.js"></script>
+  <script src="/shared/page-images.js"></script>
   <script src="/ui/media.js"></script>
   <script src="/ui/actions.js"></script>
   <script src="/ui/updates.js"></script>

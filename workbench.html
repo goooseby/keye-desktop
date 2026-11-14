@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN" data-business="live">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>华工课栈 · 工作台</title>
+  <link rel="stylesheet" href="/workbench/workbench.css">
+  <link rel="stylesheet" href="/workbench/bulletins.css">
+</head>
+<body>
+  <div id="workbench"></div>
+  <div id="app-menu" class="app-menu" popover="auto" role="menu" aria-label="华工课栈菜单"></div>
+  <div id="tab-menu" class="app-menu tab-menu" popover="auto" role="menu" aria-label="打开的标签页"></div>
+  <dialog id="dialog"></dialog>
+  <dialog id="viewer" class="viewer-dialog" aria-label="放大查看课件"></dialog>
+  <div class="notification" id="notification" role="status" aria-live="polite" popover="manual"></div>
+  <script src="/workbench/business-model.js"></script>
+  <script src="/shared/page-images.js"></script>
+  <script src="/workbench/business.js"></script>
+  <script src="/workbench/bulletins.js"></script>
+  <script src="/workbench/course-management.js"></script>
+  <script src="/workbench/motion.js"></script>
+  <script src="/workbench/workflows.js"></script>
+  <script src="/workbench/review.js"></script>
+  <script src="/workbench/review-media.js"></script>
+  <script src="/workbench/tabs.js"></script>
+  <script src="/workbench/workbench.js"></script>
+  <script type="module" src="/src/workbench.ts"></script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 # Windows 分发与更新
 
+v0.5.0 更名为“华工课栈”。打包专用配置使用 `src-tauri/windows/installer.nsi`，基于 Tauri CLI v2.11.5 原模板，只固定两个旧版注册表键，其他安装与卸载流程沿用上游。`installer-hooks.nsh` 在安装后安全迁移指向当前程序的旧快捷方式；不改用户数据和固定到任务栏的项目。模板附带上游 MIT 许可，升级 Tauri CLI 时须同步审查模板，兼容约束由 `scripts/dev/release-compatibility.test.mjs` 检查。完整边界见 [MIGRATION.md](MIGRATION.md)。
+
 项目通过 GitHub Releases 分发正式版本，首次安装和基本运行已由用户验证；卸载删除选项与完整跨版本更新仍需持续人工验收。分发目标是一个 `Keye_x.y.z_x64-setup.exe`：双击后进入 Windows 安装向导，可选择安装目录。配置采用 Tauri 2 的 NSIS `currentUser` 模式，默认安装给当前用户，不要求管理员权限；选择其他位置时以 Windows 对目标目录的实际写入权限为准。应用运行时不依赖安装路径可写。
 
 数据边界已经在代码中固定：开发脚本使用项目内 `.build/dev-data/`；普通运行使用 Tauri 的 `app_local_data_dir()`，即用户自己的 Local AppData 下按应用标识符命名的目录。SQLite 数据库、课件原图、预览、任务和设置均在资料库目录；用户可以在设置中切换资料库。安装目录只放程序和 PDFium 等只读资源，不放需要修改的课件数据。导出的 PDF 仍保存到用户选定的目录。安装、升级或更换安装位置不应重建资料库，也不应自动删除它。

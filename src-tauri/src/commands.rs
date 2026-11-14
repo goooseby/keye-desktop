@@ -13,7 +13,7 @@ const LOGIN_TOOLBAR_SCRIPT: &str = r#"
     bar.id = 'keye-login-toolbar';
     bar.style.cssText = 'position:fixed;top:12px;right:16px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid #c8dbd1;border-radius:10px;background:#fafffc;box-shadow:0 5px 20px #173a3040;color:#244c3a;font:12px Microsoft YaHei,Segoe UI,sans-serif;';
     const note = document.createElement('span');
-    note.textContent = '课页 · 登录后自动返回';
+    note.textContent = '华工课栈 · 登录后自动返回';
     note.style.cssText = 'font-weight:600;margin:0 6px;white-space:nowrap;';
     bar.append(note);
     for (const [label, action] of [['平台首页', 'home'], ['刷新网页', 'reload'], ['立即检测', 'check']]) {
@@ -51,6 +51,7 @@ fn snapshot(app:&AppHandle,library:&Library)->Result<Value,String>{
     value["loginStatus"]=json!(runtime.login_status);
     value["loginWindowOpen"]=json!(runtime.login_window.as_ref().is_some_and(|label|app.get_webview_window(label).is_some()));
     value["updatePreferences"]=json!(crate::updates::load(&state.base));
+    value["announcementPreferences"]=crate::announcements::preferences(&state.base);
     Ok(value)
 }
 fn sync(app: &AppHandle, library: &Library) -> Result<(), String> { app.emit("snapshot-changed",snapshot(app,library)?).map_err(|e|e.to_string()) }
@@ -69,18 +70,29 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
     match command {
         "snapshot" => snapshot(app,lib),
         "updateCapability" => Ok(json!(!cfg!(debug_assertions))),
+        "announcements" => {let state=app.state::<AppState>();crate::announcements::get(&state.base,data["manual"]==true)}
+        "announcementReceipt" => {let state=app.state::<AppState>();crate::announcements::receipt(&state.base,data)}
         "updatePreferences" => {let state=app.state::<AppState>();Ok(json!(crate::updates::save(&state.base,data)?))}
         "login" => login(app,lib),
         "loginControl" => login_control(app,data),
         "logout" => {let state=app.state::<AppState>();let mut runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;runtime.auth=None;runtime.courses.clear();runtime.scanned=false;runtime.login_status.clear();drop(runtime);sync(app,lib)?;Ok(json!(true))}
         "scan" => scan(app,lib,data),
         "download" => download(app,lib,data),
-        "saveCourse" => {let c=lib.save_course(data)?;sync(app,lib)?;Ok(c)}
+        "saveCourse" => {let mut input=data.clone();input["requireExisting"]=json!(data["id"].as_str().is_some_and(|id|!id.is_empty()));let c=lib.save_course(&input)?;sync(app,lib)?;Ok(c)}
+        "scheduleCourseDeletion" => {
+            let state=app.state::<AppState>();
+            let _gate=state.download_enqueue.lock().map_err(|_|"课程操作暂不可用。")?;
+            if state.import_busy.load(Ordering::SeqCst){return Err("请先完成或取消当前导入，再删除课程。".into());}
+            let operation=lib.schedule_course_deletion(required(data,"id")?,required(data,"mode")?,timestamp())?;
+            sync(app,lib)?;
+            spawn_course_deletion(app,Arc::new(Library{root:lib.root.clone()}),&operation);
+            Ok(operation)
+        }
+        "undoCourseDeletion" => {lib.cancel_course_deletion(required(data,"id")?,timestamp())?;sync(app,lib)?;Ok(json!(true))}
         "courseCover" => {let c=lib.courses()?.into_iter().find(|c|c["id"]==data["id"]).ok_or("课程不存在。")?;
             let result=lib.save_course(&json!({"id":c["id"],"title":c["title"],"term":c["term"],"coverStyle":data["style"],"coverPalette":data["palette"]}))?;sync(app,lib)?;Ok(result)}
         "assignCourse" => {let cid=data["courseId"].as_str().filter(|s|!s.is_empty());
-            if let Some(cid)=cid {if !lib.courses()?.iter().any(|c|c["id"]==cid){return Err("课程不存在。".into());}}
-            for mid in data["ids"].as_array().ok_or("课件列表无效。")? {lib.update_material(mid.as_str().ok_or("课件编号无效。")?,&json!({"courseId":cid}))?;}sync(app,lib)?;Ok(json!(true))}
+            lib.assign_materials(data["ids"].as_array().ok_or("课件列表无效。")?,cid)?;sync(app,lib)?;Ok(json!(true))}
         "reviewed" => {let mid=required(data,"id")?;let m=lib.get_material(mid)?;if m["revision"]!=data["revision"]||m["deleted"]==true{return Err("课件已更新，请重新确认整理状态。".into());}
             lib.update_material(mid,&json!({"reviewRevision":data["revision"],"touched":timestamp()}))?;sync(app,lib)?;Ok(json!(true))}
         "reviewQueue" => {let ids=data["ids"].as_array().ok_or("整理列表无效。")?;for id in ids {if lib.get_material(id.as_str().ok_or("编号无效。")?)?["deleted"]==true{return Err("请先恢复课件。".into());}}
@@ -120,10 +132,36 @@ fn dispatch(app:&AppHandle, lib:&Library, command:&str, data:&Value)->Result<Val
 }
 
 fn open_dir(path:&Path)->Result<(),String>{std::process::Command::new("explorer").arg(path).spawn().map_err(|e|e.to_string())?;Ok(())}
+pub fn resume_course_deletions(app:&AppHandle,lib:Arc<Library>)->Result<(),String>{
+    for operation in lib.pending_course_deletions()? {
+        spawn_course_deletion(app,lib.clone(),&operation);
+    }
+    Ok(())
+}
+fn spawn_course_deletion(app:&AppHandle,lib:Arc<Library>,operation:&Value){
+        let wait=operation["expiresAt"].as_u64().unwrap_or(0).saturating_sub(timestamp() as u64);
+        let app=app.clone();
+        std::thread::spawn(move||{
+            std::thread::sleep(std::time::Duration::from_millis(wait));
+            for attempt in 0..3 {
+                match lib.commit_due_course_deletions(timestamp()) {
+                    Ok(completed)=>{
+                        if !completed.is_empty(){let _=sync(&app,&lib);for item in completed {let _=app.emit("notice",format!("已删除课程「{}」，课件已{}。",text(&item,"title"),if item["mode"]=="trash"{"移入回收站"}else{"移至未归类"}));}}
+                        return;
+                    }
+                    Err(error)=>{
+                        if attempt==2{let _=app.emit("notice",format!("课程删除未完成，可撤销后重试：{error}"));let _=sync(&app,&lib);return;}
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                }
+            }
+        });
+}
 fn choose_library(app:&AppHandle)->Result<Value,String>{
     let state=app.state::<AppState>();
     {let runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;if runtime.scanning||!runtime.controls.is_empty()||state.import_busy.load(Ordering::SeqCst){return Err("请等待后台任务完成后再切换资料库。".into());}}
     let current=state.library.read().map_err(|_|"资料库状态无法读取。")?.root.clone();
+    if !state.library.read().map_err(|_|"资料库状态无法读取。")?.pending_course_deletions()?.is_empty(){return Err("请先撤销课程删除，或等待删除完成，再切换资料库。".into());}
     let Some(path)=rfd::FileDialog::new().set_title("选择资料库目录").set_directory(current).pick_folder() else{return Ok(json!(false))};
     let next=Arc::new(Library::open(path)?);
     let settings=json!({"libraryDir":next.root.display().to_string()});
@@ -292,6 +330,8 @@ fn download(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
         .filter_map(|t|t["sourceKey"].as_str().map(str::to_owned)).collect();
     let courses={let runtime=state.runtime.lock().map_err(|_|"运行状态无法读取。")?;
         runtime.courses.iter().filter(|c|ids.contains(&c["id"])&&!existing.contains(text(c,"id"))&&!pending.contains(text(c,"id"))).cloned().collect::<Vec<_>>()};
+    let deleting=lib.pending_course_deletions()?;
+    if courses.iter().any(|course|deleting.iter().any(|op|op["courseId"]==course["groupId"])){return Err("所选课程正在等待删除，请先撤销课程删除。".into());}
     if courses.is_empty(){return Err("所选课件均已在资料库或下载队列中。".into());}
     let mut jobs=Vec::new();
     for course in courses {
@@ -439,7 +479,9 @@ fn import(app:&AppHandle,lib:&Library,data:&Value)->Result<Value,String>{
         let paths=if folder{rfd::FileDialog::new().set_title("选择图片课件目录").pick_folder().map(|p|vec![p])}
             else{rfd::FileDialog::new().set_title("选择 PDF 或课件图片").add_filter("课件",&["pdf","jpg","jpeg","png","webp","bmp","tif","tiff"]).pick_files()};
         let Some(paths)=paths else{return Ok(json!(false))};
-        start_import_job(app,Arc::new(Library{root:lib.root.clone()}),folder,paths,data["courseId"].as_str().filter(|s|!s.is_empty()).map(str::to_owned))
+        let course_id=data["courseId"].as_str().filter(|id|!id.is_empty());
+        if let Some(cid)=course_id {if !lib.courses()?.iter().any(|c|c["id"]==cid)||lib.pending_course_deletions()?.iter().any(|op|op["courseId"]==cid){return Err("课程已删除或待删除，请重新选择导入课程。".into());}}
+        start_import_job(app,Arc::new(Library{root:lib.root.clone()}),folder,paths,course_id.map(str::to_owned))
     })();
     if result.is_err()||result.as_ref().is_ok_and(|v|v==false){busy.store(false,Ordering::SeqCst);}
     result

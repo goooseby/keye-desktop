@@ -1,6 +1,12 @@
 {
   "bundle": {
     "active": true,
-    "resources": { "../.tools/pdfium/bin/pdfium.dll": "pdfium.dll" }
+    "resources": { "../.tools/pdfium/bin/pdfium.dll": "pdfium.dll" },
+    "windows": {
+      "nsis": {
+        "template": "./windows/installer.nsi",
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
   }
 }
